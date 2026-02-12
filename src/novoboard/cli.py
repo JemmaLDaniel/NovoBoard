@@ -18,18 +18,6 @@ from novoboard.preprocessing import run_preprocessing
 logger = logging.getLogger(__name__)
 
 
-def expand_path(path: Path) -> Path:
-    """Expand user home directory (~) and resolve path.
-
-    Args:
-        path: Path that may contain ~ for home directory
-
-    Returns:
-        Expanded and resolved Path
-    """
-    return Path(path).expanduser().resolve()
-
-
 def download_data(data_dir: Path) -> None:
     """Download example ABRF data from Google Drive using gdown.
 
@@ -193,11 +181,11 @@ def main() -> None:
         epilog="""
 Examples:
   # Preprocess InstaNovo predictions for NovoBoard
-  novoboard preprocess --denovo-file ~/data/instanovo_preds.csv --denovo-output results/denovo.csv
+  novoboard preprocess --denovo-file data/instanovo_preds.csv --denovo-output results/denovo.csv
 
   # Preprocess both de novo and database files
-  novoboard preprocess --denovo-file ~/data/preds.csv --denovo-output results/denovo.csv \\
-                       --db-mgf-file ~/data/labeled.mgf --db-output results/db.csv
+  novoboard preprocess --denovo-file data/preds.csv --denovo-output results/denovo.csv \\
+                       --db-mgf-file data/labeled.mgf --db-output results/db.csv
 
   # Calculate accuracy of de novo predictions
   novoboard accuracy --db-file db_results.csv --denovo-file denovo.csv --spectrum-file spectra.mgf
@@ -472,25 +460,19 @@ Examples:
             logger.error("--db-output is required when --db-mgf-file is specified")
             sys.exit(1)
 
-        # Expand paths (handle ~ for home directory)
-        denovo_file = expand_path(args.denovo_file) if args.denovo_file else None
-        denovo_output = expand_path(args.denovo_output) if args.denovo_output else None
-        db_mgf_file = expand_path(args.db_mgf_file) if args.db_mgf_file else None
-        db_output = expand_path(args.db_output) if args.db_output else None
-
         # Validate input files exist
-        if denovo_file and not denovo_file.exists():
-            logger.error(f"File not found: {denovo_file}")
+        if args.denovo_file and not args.denovo_file.exists():
+            logger.error(f"File not found: {args.denovo_file}")
             sys.exit(1)
-        if db_mgf_file and not db_mgf_file.exists():
-            logger.error(f"File not found: {db_mgf_file}")
+        if args.db_mgf_file and not args.db_mgf_file.exists():
+            logger.error(f"File not found: {args.db_mgf_file}")
             sys.exit(1)
 
         run_preprocessing(
-            denovo_file=denovo_file,
-            denovo_output=denovo_output,
-            db_mgf_file=db_mgf_file,
-            db_output=db_output,
+            denovo_file=args.denovo_file,
+            denovo_output=args.denovo_output,
+            db_mgf_file=args.db_mgf_file,
+            db_output=args.db_output,
         )
 
     logger.info("NovoBoard analysis complete!")

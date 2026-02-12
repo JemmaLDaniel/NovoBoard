@@ -157,14 +157,14 @@ Convert InstaNovo predictions to NovoBoard format:
 ```bash
 # Convert de novo predictions
 novoboard preprocess \
-    --denovo-file ~/data/instanovo_preds.csv \
+    --denovo-file data/instanovo_preds.csv \
     --denovo-output results/denovo.csv
 
 # Convert both de novo predictions and labeled MGF (database annotations)
 novoboard preprocess \
-    --denovo-file ~/data/instanovo_preds.csv \
+    --denovo-file data/instanovo_preds.csv \
     --denovo-output results/denovo.csv \
-    --db-mgf-file ~/data/labeled_spectra.mgf \
+    --db-mgf-file data/labeled_spectra.mgf \
     --db-output results/db_results.csv
 ```
 
@@ -175,7 +175,6 @@ novoboard preprocess \
 - `--db-output`: Path for database results CSV
 
 **Notes:**
-- Supports tilde (`~`) expansion for home directory paths
 - Converts UNIMOD notation to NovoBoard format (e.g., `C[UNIMOD:4]` → `C(+57.02)`)
 - Filters peptides with unsupported modifications
 - Converts InstaNovo log probabilities to 0-100 scale scores
@@ -194,9 +193,9 @@ novoboard decoy --spectrum-file data/spectra.mgf
 
 # 4. (If using InstaNovo) Preprocess predictions to NovoBoard format
 novoboard preprocess \
-    --denovo-file ~/instanovo_output/predictions.csv \
-    --denovo-output results/denovo.csv
-    --db-mgf-file ~/instanovo_input/spectra.mgf
+    --denovo-file instanovo_output/predictions.csv \
+    --denovo-output results/denovo.csv \
+    --db-mgf-file instanovo_input/spectra.mgf \
     --db-output results/db_output.csv
 
 # 5. Calculate accuracy
