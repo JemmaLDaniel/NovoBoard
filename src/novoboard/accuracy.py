@@ -6,6 +6,7 @@ import logging
 import re
 import csv
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 from novoboard import config
@@ -537,7 +538,7 @@ class WorkerTest:
             csv_reader = csv.DictReader(handle)
             for row in csv_reader:
                 predicted: dict = {}
-                predicted["feature_id"] = row[col_source_file].split('.mgf')[0] + '.mgf' + "||" + row[col_scan_list]
+                predicted["feature_id"] = row[col_source_file].split('.mgf')[0] + "||" + row[col_scan_list]
                 raw_sequence = row["Peptide"]
                 assert raw_sequence, "Error: wrong format."
                 okay, predicted["sequence"] = parse_raw_sequence(raw_sequence)
@@ -588,6 +589,10 @@ class WorkerTest:
         logger.info("=" * 80)
         logger.info("WorkerTest._get_spectra()")
 
+        # Extract default source file name from spectrum file path
+        default_source_file = Path(self.spectrum_file).stem
+        spectrum_index = 0
+
         with open(self.spectrum_file, 'r') as f_in:
             while True:
                 line = f_in.readline()
@@ -596,11 +601,19 @@ class WorkerTest:
                 if line == '\n':  # empty line
                     continue
                 peak_list: list[tuple[float, float]] = []
+                # Initialize with defaults for each spectrum
+                source_file = default_source_file
+                scan = str(spectrum_index)
                 while "END IONS" not in line:
                     # parse header lines
                     if 'BEGIN IONS' in line or '=' in line:
                         if "TITLE=" in line:
-                            source_file = _MGF_FIELD_PATTERN.split(line)[1].split('\\')[-1].split('.raw')[0] + '.mgf'
+                            title_value = _MGF_FIELD_PATTERN.split(line)[1]
+                            # Try to extract source file from title
+                            if '\\' in title_value or '.raw' in title_value:
+                                source_file = title_value.split('\\')[-1].split('.raw')[0]
+                            else:
+                                source_file = default_source_file
                         if line[:6] == "SCANS=":
                             scan = _MGF_FIELD_PATTERN.split(line)[1]
                         line = f_in.readline()
@@ -611,6 +624,7 @@ class WorkerTest:
                     line = f_in.readline()
                 feature_id = f'{source_file}||{scan}'
                 self.spectrum_dict[feature_id] = peak_list
+                spectrum_index += 1
         logger.info(f"len(self.spectrum_dict) = {len(self.spectrum_dict)}")
 
     def _match_AA_novor(

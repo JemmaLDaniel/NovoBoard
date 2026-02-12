@@ -55,7 +55,7 @@ def read_denovo(
     denovo_psm = pd.read_csv(denovo_csv, keep_default_na=False)
     # Vectorized feature_id creation
     denovo_psm['feature_id'] = (
-        denovo_psm['Source File'].str.split('.mgf').str[0] + '.mgf||' + 
+        denovo_psm['Source File'].str.split('.mgf').str[0] + '||' + 
         denovo_psm['Scan'].astype(str)
     )
     if selected_features:
@@ -151,7 +151,7 @@ def validate_FDR(
     db_psm = pd.read_csv(db_csv, keep_default_na=False)
     # Vectorized feature_id creation
     db_psm['feature_id'] = (
-        db_psm['Source File'].str.split('.mgf').str[0] + '.mgf||' + 
+        db_psm['Source File'].str.split('.mgf').str[0] + '||' + 
         db_psm['Scan'].astype(str)
     )
     selected_features = None  # set(db_psm['feature_id'])
