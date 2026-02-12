@@ -29,4 +29,10 @@ packages = ["src/novoboard"]
 dev = [
     "ipykernel>=7.1.0",
     "pytest>=8.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
 ]
+
+[tool.ruff.lint]
+# Strict linting by default, with per-file exceptions for notebooks and shims
+per-file-ignores = {"aa.fdr_github.ipynb" = ["E701", "E702", "E741", "F841"], "config.py" = ["F403", "F405"]}

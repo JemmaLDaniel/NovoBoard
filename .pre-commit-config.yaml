@@ -1,0 +1,47 @@
+repos:
+  # Basic code quality and formatting
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-toml
+
+  # Python linting with ruff
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      # Run the linter
+      - id: ruff
+        args: [--fix]
+      # Run the formatter
+      - id: ruff-format
+
+  # Type checking with mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - numpy
+          - pandas-stubs
+        args: [--ignore-missing-imports, --no-strict-optional, --disable-error-code=assignment, --disable-error-code=operator, --disable-error-code=arg-type]
+
+  # Strip notebook outputs
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.8.1
+    hooks:
+      - id: nbstripout
+
+  # Ensure uv.lock is in sync with pyproject.toml
+  - repo: local
+    hooks:
+      - id: uv-lock-check
+        name: Check uv.lock is in sync
+        entry: bash -c 'uv lock --check'
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
