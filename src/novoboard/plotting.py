@@ -89,18 +89,7 @@ def plot_fdr_validation(
     # Panel 2: FDR comparison - True FDR (database) vs Estimated FDR (each decoy)
     # X-axis is rank position (1 = highest confidence prediction)
     # Data comes reversed from filtering, so reverse it back
-    # Plot true FDR line first (from first result, as reference)
-    if results_list:
-        true_fdr_reversed = list(reversed(results_list[0].true_fdr_T))
-        ranks = range(1, len(true_fdr_reversed) + 1)
-        ax[2].plot(
-            ranks,
-            true_fdr_reversed,
-            color="black",
-            linewidth=2,
-            label="True FDR",
-        )
-    # Plot estimated FDR for each decoy
+    # Plot estimated FDR for each decoy (solid lines)
     for results, color, label in zip(results_list, colors, labels):
         est_fdr_reversed = list(reversed(results.estimated_fdr))
         ranks = range(1, len(est_fdr_reversed) + 1)
@@ -108,8 +97,19 @@ def plot_fdr_validation(
             ranks,
             est_fdr_reversed,
             color=color,
-            linestyle="--",
             label=f"Est. FDR ({label})",
+        )
+    # Plot true FDR line last (black dashed, on top for visibility)
+    if results_list:
+        true_fdr_reversed = list(reversed(results_list[0].true_fdr_T))
+        ranks = range(1, len(true_fdr_reversed) + 1)
+        ax[2].plot(
+            ranks,
+            true_fdr_reversed,
+            color="black",
+            linestyle="--",
+            linewidth=2,
+            label="True FDR",
         )
     ax[2].set_ylim(0, fdr_max)
     ax[2].set_xlabel("Rank (by model confidence)")

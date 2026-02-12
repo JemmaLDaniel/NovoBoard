@@ -1,4 +1,63 @@
-"""Calculate fragment ion, amino acid, and peptide accuracies."""
+"""Calculate accuracy metrics for de novo peptide sequencing predictions.
+
+Overview
+--------
+When evaluating de novo peptide sequencing, we need ground truth - known correct
+peptide sequences for each spectrum. This typically comes from database search on
+the same spectra, which has high confidence when matched to a protein database.
+
+This module compares de novo predictions against database search results at multiple
+granularity levels, from lenient to strict.
+
+Accuracy Metrics: A Hierarchy of Stringency
+-------------------------------------------
+
+**Fragment Ion Level** (Most lenient)
+    Compare theoretical fragment ions of predicted vs. target peptide against the
+    observed spectrum. A prediction that produces similar fragmentation patterns
+    to the target may be "good enough" even if not sequence-identical.
+
+    Why this matters: Some substitutions (e.g., I↔L with identical mass) cannot be
+    distinguished by MS/MS. Ion-level matching catches these.
+
+**Amino Acid Level** (Intermediate)
+    Count how many individual amino acids are correctly identified, allowing for
+    position shifts. Uses cumulative mass alignment (Novor-style matching).
+
+    Why this matters: Even partial correctness is valuable. A prediction of
+    "PEPTIDE" vs. target "PEPTYDE" has 6/7 AA correct - still useful information.
+
+**Peptide Level** (Strictest)
+    Binary: is the entire predicted sequence exactly correct (all AAs match)?
+
+    Why this matters: For some applications (e.g., neoantigen discovery), only
+    exact sequences are useful. This metric reflects end-to-end accuracy.
+
+The Novor Matching Algorithm
+----------------------------
+Standard string comparison doesn't work well for peptide matching because:
+1. Mass spectrometry has finite mass accuracy (can't distinguish I/L)
+2. Predictions may have insertions/deletions that shift positions
+3. We care about MASS correctness, not character-by-character matching
+
+The Novor algorithm (Ma, 2015) compares cumulative masses instead:
+1. Convert each sequence to cumulative mass arrays (prefix masses)
+2. Walk through both arrays, matching positions where cumulative masses align
+3. At each aligned position, check if the individual AA masses also match
+
+This elegantly handles mass-equivalent substitutions and small position shifts.
+
+Output Files
+------------
+- *_accuracy.csv: Per-spectrum accuracy metrics (recall, ion matching, etc.)
+- *_denovo_only.csv: Predictions without database matches (novel sequences)
+- *_scan2fea.csv: Scan-to-feature mapping (for LC-MS features spanning scans)
+- *_multifea.csv: Features assigned to multiple scans (chimeric spectra)
+
+References
+----------
+- Ma, B. (2015). "Novor: Real-time peptide de novo sequencing software."
+"""
 
 from __future__ import annotations
 
@@ -52,15 +111,34 @@ col_scan_list = "Scan"
 
 
 def parse_raw_sequence(raw_sequence: str) -> tuple[bool, list[str]]:
-    """Parse a raw peptide sequence with modifications.
+    """Parse a peptide sequence string into tokenized amino acids with modifications.
+
+    Peptide Sequence Representation
+    --------------------------------
+    Mass spectrometry peptide sequences are typically written with modifications
+    in parentheses, e.g., "PEPTC(+57.02)IDE" where:
+    - Standard amino acids are single letters (P, E, T, I, D)
+    - Modified amino acids have mass shifts in parentheses after the residue
+
+    Common modifications:
+    - C(+57.02): Carbamidomethylation of cysteine (alkylation artifact)
+    - M(+15.99): Oxidation of methionine (common oxidation)
+    - N/Q(+0.98): Deamidation (asparagine/glutamine → aspartic/glutamic acid)
+    - S/T/Y(+79.97): Phosphorylation (post-translational modification)
+
+    Why Tokenization?
+    -----------------
+    Downstream processing (mass calculation, vocabulary lookup) needs discrete
+    amino acid units. "PEPTC(+57.02)IDE" becomes ["P", "E", "P", "T",
+    "C(Carbamidomethylation)", "I", "D", "E"] - a list of 8 tokens.
 
     Args:
-        raw_sequence: Peptide sequence string with optional modifications
-                     (e.g., "PEPTC(+57.02)DE")
+        raw_sequence: Peptide string with modifications (e.g., "PEPTC(+57.02)DE")
 
     Returns:
-        Tuple of (success, peptide_list) where success is True if all
-        amino acids and modifications are recognized.
+        Tuple of (success, peptide_tokens):
+        - success: True if all tokens are in the known vocabulary
+        - peptide_tokens: List of amino acid strings including modifications
     """
     raw_sequence_len = len(raw_sequence)
     peptide: list[str] = []
@@ -101,10 +179,38 @@ def parse_raw_sequence(raw_sequence: str) -> tuple[bool, list[str]]:
 
 
 class WorkerTest:
-    """Calculate accuracy metrics for de novo peptide sequencing.
+    """Calculate accuracy metrics comparing de novo predictions to database search.
 
-    Compares predicted peptide sequences against target (database) sequences
-    and calculates fragment ion, amino acid, and peptide-level accuracy metrics.
+    The Core Task
+    -------------
+    Given two sets of peptide identifications for the same spectra:
+    - Target (ground truth): from database search, assumed correct
+    - Predicted: from de novo sequencing, being evaluated
+
+    Calculate how well predictions match targets at multiple stringency levels.
+
+    Why Multiple Metrics?
+    ---------------------
+    A single accuracy number doesn't capture the full picture:
+
+    - A model predicting "PEPTIDE" when target is "PEPTYDE" gets 0% peptide-level
+      accuracy but 86% AA-level accuracy. For some applications, that's great!
+
+    - A model that consistently predicts correct peptides but with I/L swaps
+      (indistinguishable by mass) should get credit via ion-level metrics.
+
+    - Different downstream applications have different requirements:
+      * Database validation: exact match required
+      * Novel peptide discovery: partial matches useful
+      * Immunopeptidomics: specific epitope regions matter most
+
+    Output Files
+    ------------
+    - accuracy_file: Main output with per-spectrum metrics
+    - denovo_only_file: Predictions without corresponding database matches
+      (potentially novel peptides not in the search database)
+    - scan2fea_file: Mapping of scans to features (for LC-MS feature grouping)
+    - multifea_file: Features spanning multiple scans (chimeric spectra flags)
     """
 
     def __init__(
@@ -125,7 +231,7 @@ class WorkerTest:
             col_aa_score: Column name for amino acid scores
         """
         logger.info("=" * 80)
-        logger.info("WorkerTest.__init__()")
+        logger.info("Initializing accuracy calculation...")
 
         self.MZ_MAX: float = config.MZ_MAX
 
@@ -143,13 +249,15 @@ class WorkerTest:
         self.multifea_file = str(parent / f"{stem}_multifea.csv")
         self.col_score = col_score
         self.col_aa_score = col_aa_score
-        logger.info(f"target_file = {self.target_file}")
-        logger.info(f"predicted_file = {self.predicted_file}")
-        logger.info(f"spectrum_file = {self.spectrum_file}")
-        logger.info(f"accuracy_file = {self.accuracy_file}")
-        logger.info(f"denovo_only_file = {self.denovo_only_file}")
-        logger.info(f"scan2fea_file = {self.scan2fea_file}")
-        logger.info(f"multifea_file = {self.multifea_file}")
+        logger.info("Input files:")
+        logger.info(f"  Database (target) peptides: {self.target_file}")
+        logger.info(f"  De novo predictions: {self.predicted_file}")
+        logger.info(f"  Spectra (MGF): {self.spectrum_file}")
+        logger.info("Output files will be written to:")
+        logger.info(f"  Accuracy results: {self.accuracy_file}")
+        logger.info(f"  De novo only (no DB match): {self.denovo_only_file}")
+        logger.info(f"  Scan-to-feature mapping: {self.scan2fea_file}")
+        logger.info(f"  Multi-feature entries: {self.multifea_file}")
 
         self.target_dict: dict[str, list[str]] = {}
         self.predicted_list: list[dict] = []
@@ -186,7 +294,10 @@ class WorkerTest:
             if target_simplified in db_peptide_list:
                 target_dict_db[feature_id] = target
             else:
-                logger.warning(f"target not found: {target_simplified}")
+                logger.warning(
+                    f"Target peptide not in filter list (skipping): "
+                    f"{''.join(target_simplified)}"
+                )
         return target_dict_db
 
     def _filter_targets_by_mass(
@@ -275,7 +386,9 @@ class WorkerTest:
         # Write scan2fea file
         with open(self.scan2fea_file, "w", newline="") as handle:
             writer = csv.writer(handle, delimiter="\t")
-            writer.writerow(["scan_id", "feature_count", "feature_list"])
+            writer.writerow(
+                ["scan_id", "associated_feature_count", "associated_feature_ids"]
+            )
             for scan_id, value in scan_dict.items():
                 writer.writerow(
                     [scan_id, value["feature_count"], ";".join(value["feature_list"])]
@@ -284,7 +397,7 @@ class WorkerTest:
         # Write multifea file
         with open(self.multifea_file, "w", newline="") as handle:
             writer = csv.writer(handle, delimiter="\t")
-            writer.writerow(["feature_id", "scan_list"])
+            writer.writerow(["feature_id", "shared_scans_with_counts"])
             for feature_id, scan_list in multifea_dict.items():
                 writer.writerow([feature_id, ";".join(scan_list)])
 
@@ -308,51 +421,96 @@ class WorkerTest:
         recall_all_peptide_ions_total: float,
     ) -> None:
         """Log all accuracy metrics."""
-        logger.info(f"target_count_total = {target_count_total:d}")
-        logger.info(f"target_len_total = {target_len_total:d}")
-        logger.info(f"target_count_db = {target_count_db:d}")
-        logger.info(f"target_len_db = {target_len_db:d}")
-        logger.info(f"target_count_db_mass: {target_count_db_mass:d}")
-        logger.info(f"target_len_db_mass: {target_len_db_mass:d}")
+        logger.info("=" * 80)
+        logger.info("ACCURACY RESULTS SUMMARY")
+        logger.info("=" * 80)
 
-        logger.info(f"predicted_count_mass: {predicted_count_mass:d}")
-        logger.info(f"predicted_count_mass_db: {predicted_count_mass_db:d}")
-        logger.info(f"predicted_len_mass_db: {predicted_len_mass_db:d}")
-        logger.info(f"predicted_only: {predicted_only:d}")
-
-        logger.info(f"recall_AA_total = {recall_AA_total / target_len_total:.4f}")
-        logger.info(f"recall_AA_db = {recall_AA_total / target_len_db:.4f}")
-        logger.info(f"recall_AA_db_mass = {recall_AA_total / target_len_db_mass:.4f}")
+        logger.info("Dataset statistics:")
+        logger.info(f"  Total database peptides: {target_count_total:,d}")
+        logger.info(f"  Total amino acids in database: {target_len_total:,d}")
+        logger.info(f"  After filtering by peptide list: {target_count_db:,d} peptides")
         logger.info(
-            f"recall_peptide_total = {recall_peptide_total / target_count_total:.4f}"
-        )
-        logger.info(f"recall_peptide_db = {recall_peptide_total / target_count_db:.4f}")
-        logger.info(
-            f"recall_peptide_db_mass = {recall_peptide_total / target_count_db_mass:.4f}"
-        )
-        logger.info(
-            f"precision_AA_mass_db  = {recall_AA_total / predicted_len_mass_db:.4f}"
-        )
-        logger.info(
-            f"precision_peptide_mass_db  = {recall_peptide_total / predicted_count_mass_db:.4f}"
+            f"  After filtering by mass (<{config.MZ_MAX} Da): "
+            f"{target_count_db_mass:,d} peptides"
         )
 
-        logger.info(f"recall_ion = {matched_ion_total / target_ion_total:.4f}")
-        logger.info(f"precision_ion = {matched_ion_total / predicted_ion_total:.4f}")
+        logger.info("Prediction statistics:")
+        logger.info(f"  Predictions within mass range: {predicted_count_mass:,d}")
+        logger.info(f"  Predictions with database match: {predicted_count_mass_db:,d}")
         logger.info(
-            f"recall_all_peptide_ions = {recall_all_peptide_ions_total / target_count_db_mass:.4f}"
+            f"  Predictions without database match (novel): {predicted_only:,d}"
         )
-        logger.info(f"target_ion_total = {target_ion_total}")
-        logger.info(f"matched_ion_total = {matched_ion_total}")
+
+        logger.info("-" * 40)
+        logger.info("AMINO ACID-LEVEL ACCURACY:")
+        logger.info(
+            f"  Recall (matched AAs / target AAs): "
+            f"{recall_AA_total / target_len_db_mass:.2%}"
+        )
+        logger.info(
+            f"  Precision (matched AAs / predicted AAs): "
+            f"{recall_AA_total / predicted_len_mass_db:.2%}"
+        )
+
+        logger.info("-" * 40)
+        logger.info("PEPTIDE-LEVEL ACCURACY:")
+        logger.info(
+            f"  Recall (exact matches / target peptides): "
+            f"{recall_peptide_total / target_count_db_mass:.2%}"
+        )
+        logger.info(
+            f"  Precision (exact matches / predictions): "
+            f"{recall_peptide_total / predicted_count_mass_db:.2%}"
+        )
+
+        logger.info("-" * 40)
+        logger.info("FRAGMENT ION-LEVEL ACCURACY:")
+        logger.info(
+            f"  Ion recall (matched ions / target ions): "
+            f"{matched_ion_total / target_ion_total:.2%}"
+        )
+        logger.info(
+            f"  Ion precision (matched ions / predicted ions): "
+            f"{matched_ion_total / predicted_ion_total:.2%}"
+        )
+        logger.info(
+            f"  Perfect ion matches (100% ions correct): "
+            f"{recall_all_peptide_ions_total / target_count_db_mass:.2%}"
+        )
+        logger.info(
+            f"  Total target ions: {target_ion_total:,.0f}, "
+            f"matched: {matched_ion_total:,.0f}"
+        )
+        logger.info("=" * 80)
 
     def test_accuracy(self, db_peptide_list: list[list[str]] | None = None) -> None:
-        """Calculate accuracy metrics between predicted and target peptides.
+        """Calculate and report all accuracy metrics, writing results to files.
+
+        Main Workflow
+        -------------
+        1. Load target (database) peptides → ground truth
+        2. Load predicted (de novo) peptides → what we're evaluating
+        3. Load spectra → for ion-level matching
+        4. For each spectrum with both target and prediction:
+           - Calculate AA-level accuracy (Novor matching)
+           - Calculate ion-level accuracy (fragment overlap)
+           - Record to accuracy file
+        5. For predictions without targets:
+           - These are "de novo only" - potentially novel peptides
+           - Record to denovo_only file for manual inspection
+        6. Log aggregate statistics
+
+        Optional Filtering
+        ------------------
+        If db_peptide_list is provided, only targets matching this list are
+        considered. This allows focused evaluation on specific peptide sets
+        (e.g., only tryptic peptides, only a specific protein's peptides).
 
         Args:
-            db_peptide_list: Optional list of peptides to filter targets
+            db_peptide_list: Optional whitelist of peptides to include
         """
         logger.info("=" * 80)
-        logger.info("WorkerTest.test_accuracy()")
+        logger.info("Starting accuracy calculation...")
 
         # write the accuracy of predicted peptides
         accuracy_handle = open(self.accuracy_file, "w")
@@ -362,14 +520,14 @@ class WorkerTest:
             "target_sequence",
             "predicted_sequence",
             "predicted_score",
-            "predicted_aa_score",
-            "recall_AA",
-            "aa_match",
-            "predicted_len",
-            "target_len",
-            "target_ion",
-            "matched_ion",
-            "unmatched_ion_list",
+            "predicted_position_scores",
+            "matched_amino_acid_count",
+            "amino_acid_match_pattern",
+            "predicted_sequence_length",
+            "target_sequence_length",
+            "target_ion_count",
+            "matched_ion_count",
+            "unmatched_target_ions_mz",
             "scan_list_middle",
             "scan_list_original",
         ]
@@ -383,7 +541,7 @@ class WorkerTest:
             "feature_area",
             "predicted_sequence",
             "predicted_score",
-            "predicted_score_max",
+            "max_predicted_score",
             "scan_list_middle",
             "scan_list_original",
         ]
@@ -584,8 +742,7 @@ class WorkerTest:
 
     def _get_predicted_peaks_11(self) -> None:
         """Read predicted peptides from PEAKS output CSV file."""
-        logger.info("=" * 80)
-        logger.info("WorkerTest._get_predicted_peaks_11()")
+        logger.info("Loading de novo predictions...")
 
         predicted_list: list[dict] = []
         with open(self.predicted_file, "r") as handle:
@@ -616,8 +773,7 @@ class WorkerTest:
 
     def _get_target(self) -> None:
         """Read target peptides from database search CSV file."""
-        logger.info("=" * 80)
-        logger.info("WorkerTest._get_target()")
+        logger.info("Loading database (target) peptides...")
 
         target_dict: dict[str, list[str]] = {}
         with open(self.target_file, "r") as handle:
@@ -630,9 +786,9 @@ class WorkerTest:
 
             for line in handle:
                 line_parts = [x.strip('"') for x in _CSV_SPLIT_PATTERN.split(line)]
-                feature_id = (
-                    line_parts[source_file_index] + "||" + line_parts[scan_index]
-                )
+                # Strip .mgf extension from source file for consistent feature_id format
+                source_file = line_parts[source_file_index].split(".mgf")[0]
+                feature_id = source_file + "||" + line_parts[scan_index]
                 raw_sequence = line_parts[raw_sequence_index]
                 assert raw_sequence, "Error: wrong target format."
                 okay, peptide = parse_raw_sequence(raw_sequence)
@@ -644,8 +800,7 @@ class WorkerTest:
 
     def _get_spectra(self) -> None:
         """Read spectra from MGF file."""
-        logger.info("=" * 80)
-        logger.info("WorkerTest._get_spectra()")
+        logger.info("Loading spectra from MGF file...")
 
         # Extract default source file name from spectrum file path
         default_source_file = Path(self.spectrum_file).stem
@@ -685,24 +840,47 @@ class WorkerTest:
                 feature_id = f"{source_file}||{scan}"
                 self.spectrum_dict[feature_id] = peak_list
                 spectrum_index += 1
-        logger.info(f"len(self.spectrum_dict) = {len(self.spectrum_dict)}")
+        logger.info(f"  Loaded {len(self.spectrum_dict):,d} spectra")
 
     def _match_AA_novor(
         self,
         target: list[int],
         predicted: list[int],
     ) -> tuple[int, str]:
-        """Match amino acids between target and predicted using cumulative mass.
+        """Match amino acids using cumulative mass alignment (Novor algorithm).
 
-        Uses the Novor-style matching algorithm based on cumulative mass
-        alignment with tolerance thresholds.
+        Why Not Simple String Matching?
+        -------------------------------
+        Consider target "TIDE" vs predicted "TYDE":
+        - String matching: 3/4 match (T, D, E), 75% accuracy
+        - But I→Y is a mass shift that propagates: after position 1, cumulative
+          masses never align again, making downstream matches meaningless.
+
+        The Novor approach uses mass-based alignment instead:
+        - Convert sequences to cumulative mass arrays
+        - Walk through both, finding positions where masses align (within tolerance)
+        - At aligned positions, check if individual AA masses match
+
+        The Algorithm
+        -------------
+        1. Compute prefix mass sums for both sequences
+        2. Two pointers (i for target, j for predicted) start at position 0
+        3. At each step:
+           - If cumulative masses align (within MASS_TOLERANCE_CUMULATIVE):
+             * Check if individual AA masses also align (within MASS_TOLERANCE_AA)
+             * If yes, count as match; advance both pointers
+             * If no, still advance both (aligned position, wrong AA)
+           - If target mass is smaller: advance target pointer (predicted has extra mass)
+           - If predicted mass is smaller: advance predicted pointer (target has extra mass)
+        4. Return count and match string (1 for match, 0 for mismatch at each position)
 
         Args:
-            target: List of target amino acid IDs
-            predicted: List of predicted amino acid IDs
+            target: Target amino acid IDs (integers from config.vocab)
+            predicted: Predicted amino acid IDs
 
         Returns:
-            Tuple of (number of matches, match string)
+            Tuple of (match_count, match_string) where match_string shows "1"/"0"
+            at each aligned position
         """
         num_match = 0
         target_len = len(target)
@@ -739,13 +917,35 @@ class WorkerTest:
     def _peptide_to_ions(self, peptide: list[str]) -> np.ndarray:
         """Calculate theoretical fragment ion m/z values for a peptide.
 
-        Generates b and y ions with neutral losses (H2O, NH3) for charges 1 and 2.
+        MS/MS Fragmentation Basics
+        --------------------------
+        In collision-induced dissociation (CID), peptide bonds break to produce:
+        - b-ions: N-terminal fragments (keep the amino terminus)
+        - y-ions: C-terminal fragments (keep the carboxyl terminus)
+
+        For a peptide of length n, we get n-1 possible cleavage sites, producing
+        n-1 b-ions (b1, b2, ..., b_{n-1}) and n-1 y-ions (y1, y2, ..., y_{n-1}).
+
+        Additional complexity:
+        - Neutral losses: ions can lose H2O (-18 Da) or NH3 (-17 Da)
+        - Multiple charges: ions can be singly (+1) or doubly (+2) charged
+
+        This function generates all ion types: b, b-H2O, b-NH3, y, y-H2O, y-NH3,
+        each at charge states +1 and +2. That's 12 ion types per cleavage site.
+
+        Why Generate All Ion Types?
+        ---------------------------
+        Different peptides and fragmentation conditions produce different ion
+        patterns. By generating all possible ions, we can:
+        1. Match against the observed spectrum to see which ions are present
+        2. Compare target vs predicted peptide ion coverage
+        3. Calculate ion-level accuracy metrics
 
         Args:
-            peptide: List of amino acid strings
+            peptide: List of amino acid strings (including modifications)
 
         Returns:
-            2D numpy array of ion m/z values, shape (len(peptide)-1, num_ion_types)
+            2D array of shape (n-1, 12) with m/z values for each ion type
         """
         peptide_mass = self._compute_peptide_mass(peptide)
         prefix_mass = config.mass_AA["_GO"] + np.cumsum(
@@ -772,15 +972,46 @@ class WorkerTest:
         predicted: list[str],
         spectrum: list[tuple[float, float]],
     ) -> tuple[int, int, int, str]:
-        """Match fragment ions between target, predicted peptides and spectrum.
+        """Calculate fragment ion overlap between target, predicted, and spectrum.
+
+        The Three-Way Comparison
+        ------------------------
+        This function answers: "Do the target and predicted peptides produce
+        similar fragmentation in the observed spectrum?"
+
+        We compare three things:
+        1. Theoretical ions from target peptide
+        2. Theoretical ions from predicted peptide
+        3. Observed peaks in the spectrum
+
+        For each observed peak, we check if it matches (within tolerance) any
+        theoretical ion from target and/or predicted.
+
+        Key Metrics
+        -----------
+        - target_ion_count: How many observed peaks match target's theoretical ions
+        - predicted_ion_count: How many observed peaks match predicted's theoretical ions
+        - matched_ion_count: How many peaks match BOTH target AND predicted
+
+        These enable:
+        - Ion recall: matched / target (what fraction of target's signal is explained)
+        - Ion precision: matched / predicted (what fraction of prediction is correct)
+        - Unmatched list: target ions not covered by prediction (diagnostic)
+
+        Why Ion-Level Matters
+        ---------------------
+        Two peptides can have different sequences but produce overlapping fragments:
+        - PEPTIDE and PEPTYDE differ at position 4, but positions 1-3 produce
+          identical b-ions and positions 5-7 produce identical y-ions
+        - Ion-level metrics capture this partial correctness
 
         Args:
-            target: Target peptide sequence
+            target: Target peptide sequence (list of AA strings)
             predicted: Predicted peptide sequence
-            spectrum: List of (m/z, intensity) tuples
+            spectrum: Observed peaks as [(m/z, intensity), ...]
 
         Returns:
-            Tuple of (target_ion_count, predicted_ion_count, matched_count, unmatched_list)
+            (target_ions, predicted_ions, matched_ions, unmatched_mz_list)
         """
         target_by = self._peptide_to_ions(target).reshape(1, -1)
         predicted_by = self._peptide_to_ions(predicted).reshape(1, -1)

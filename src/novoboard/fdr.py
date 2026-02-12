@@ -1,4 +1,45 @@
-"""Decoy FDR calculation and validation."""
+"""False Discovery Rate (FDR) estimation and validation for de novo sequencing.
+
+Background: The Target-Decoy Approach
+-------------------------------------
+In proteomics, we need to estimate how many of our peptide identifications are false
+positives. Traditional database search uses a target-decoy strategy: search against
+both real (target) and shuffled/reversed (decoy) protein sequences. Any match to a
+decoy is definitionally a false positive, allowing FDR estimation.
+
+The Challenge for De Novo Sequencing
+------------------------------------
+De novo sequencing predicts peptide sequences directly from spectra without a database.
+This breaks the traditional target-decoy paradigm because there's no "decoy database"
+to search against. Instead, we use **spectrum-level decoys**: we corrupt the input
+spectra themselves to create "impossible" spectra that should not match any real
+peptide. Predictions on these corrupted spectra represent false positives.
+
+How This Module Works
+---------------------
+1. **calculate_FDR()**: Combines target (real) and decoy (corrupted) spectrum
+   predictions, sorts by confidence score, and estimates FDR using the classic
+   formula: FDR = (decoy hits) / (target hits) at each score threshold.
+
+2. **validate_FDR()**: When we have ground-truth labels (from database search),
+   we can validate whether our estimated FDR is accurate. This is crucial for
+   benchmarking - if estimated FDR says 1%, is it actually ~1% incorrect?
+
+   We calculate "true FDR" at multiple levels:
+   - Peptide-level: exact sequence match
+   - Ion-level (100%): all fragment ions match
+   - Ion-level (threshold): some fraction of fragment ions match
+
+   Plotting estimated vs true FDR reveals calibration quality - a diagonal line
+   means perfect calibration; curves above the diagonal mean FDR is underestimated.
+
+Monotonic Filtering
+-------------------
+FDR should theoretically decrease as we raise the confidence threshold (keep only
+top-scoring predictions). In practice, sampling noise can cause local increases.
+Monotonic filtering removes these "bumps" by only reporting points where both
+estimated and true FDR decrease, producing cleaner visualization curves.
+"""
 
 from __future__ import annotations
 
@@ -13,18 +54,28 @@ from novoboard.accuracy import WorkerTest
 
 @dataclass
 class FDRValidationResult:
-    """Results from FDR validation.
+    """Container for FDR validation results comparing estimated vs true FDR.
+
+    This class holds all data needed to assess how well target-decoy FDR estimation
+    matches reality (ground truth from database search). The key comparison is:
+    - estimated_fdr: What the target-decoy method predicts the FDR to be
+    - true_fdr variants: What the actual error rate is based on known correct answers
+
+    Plotting estimated vs true FDR reveals calibration quality. Points on the
+    diagonal (y=x) indicate perfect calibration; points above mean FDR is
+    underestimated (dangerous); points below mean FDR is overestimated (conservative).
 
     Attributes:
-        denovo_df: DataFrame with de novo sequencing results and accuracy info
-        df: Filtered DataFrame with only annotated target spectra
-        estimated_fdr: Estimated FDR values
-        cumsum: Cumulative count of PSMs
-        true_fdr: True FDR based on peptide-level accuracy
-        true_fdr_I: True FDR based on ion-level accuracy (100% match)
-        true_fdr_T: True FDR based on ion-level accuracy (threshold match)
-        estimated_fdr_full: Estimated FDR on all target spectra
-        cumsum_full: Cumulative count on all target spectra
+        denovo_df: Full DataFrame with de novo results, accuracy metrics, and FDR
+        df: Filtered DataFrame containing only annotated target spectra (those with
+            database matches for ground truth comparison)
+        estimated_fdr: Estimated FDR from target-decoy competition (x-axis for plots)
+        cumsum: Cumulative PSM count at each FDR threshold (for counting identifications)
+        true_fdr: True FDR using exact peptide sequence matching (strictest metric)
+        true_fdr_I: True FDR using 100% fragment ion matching (slightly more lenient)
+        true_fdr_T: True FDR using threshold-based ion matching (most lenient)
+        estimated_fdr_full: Estimated FDR on ALL target spectra (not just annotated)
+        cumsum_full: Cumulative PSM count on all target spectra
     """
 
     denovo_df: pd.DataFrame
@@ -74,7 +125,27 @@ def calculate_FDR(
     fdr_list: list[float],
     selected_features: set[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[float], list[int]]:
-    """Calculate FDR using target-decoy approach.
+    """Estimate FDR using target-decoy competition.
+
+    The Core Idea
+    -------------
+    We have two sets of predictions:
+    - **Target**: Predictions on real, uncorrupted spectra (mix of true/false positives)
+    - **Decoy**: Predictions on corrupted spectra (definitionally all false positives)
+
+    By sorting all predictions by score and tracking the ratio of decoy to target hits,
+    we estimate what fraction of target hits are likely false positives.
+
+    The assumption: at any score threshold, the rate of false positives among targets
+    equals the rate of decoy hits (since both are drawn from the "null" distribution
+    of incorrect matches). This is the target-decoy competition principle.
+
+    Algorithm
+    ---------
+    1. Combine target and decoy predictions
+    2. Sort by confidence score (descending) - best predictions first
+    3. Walk down the list, counting cumulative target and decoy hits
+    4. At each position: estimated_FDR = cumsum_decoy / cumsum_target
 
     Args:
         target_csv: Path to target (original) de novo results
@@ -86,35 +157,42 @@ def calculate_FDR(
     Returns:
         Tuple of (combined_df, fdr_df, score_thresholds, counts)
     """
-    logger.info(f"target_csv = {target_csv}")
-    logger.info(f"decoy_csv = {decoy_csv}")
+    logger.info("Loading predictions for FDR calculation...")
+    logger.info(f"  Target predictions: {target_csv}")
+    logger.info(f"  Decoy predictions: {decoy_csv}")
     target_psm = read_denovo(target_csv, selected_features)
     decoy_psm = read_denovo(decoy_csv, selected_features)
-    logger.info(f"len(target_psm) = {len(target_psm)}")
-    logger.info(f"len(decoy_psm) = {len(decoy_psm)}")
+    logger.info(f"  Loaded {len(target_psm):,d} target PSMs")
+    logger.info(f"  Loaded {len(decoy_psm):,d} decoy PSMs")
+    # Step 1: Combine target and decoy predictions into a single DataFrame
+    # This enables direct competition - we'll rank them together by score
     dfs = (
         pd.concat([target_psm, decoy_psm], keys=["target", "decoy"])
         .reset_index()
         .rename(columns={"level_0": "spectrum"})
     )
-    # Vectorized is_target
     dfs["is_target"] = dfs["spectrum"] == "target"
 
-    # target-decoy competition
+    # Step 2: Sort by score (descending) - best predictions first
+    # Secondary sort by is_target ensures targets win ties (conservative FDR estimate)
     dfs.sort_values(
         by=[engine_score, "is_target"], ascending=[False, False], inplace=True
     )
-    # competition on whole dataset
+
+    # Create a copy for FDR calculation with distinct decoy feature IDs
     dfs_fdr = dfs.copy()
-    # Vectorized feature_id modification for decoys
     dfs_fdr.loc[~dfs_fdr["is_target"], "feature_id"] = (
         dfs_fdr.loc[~dfs_fdr["is_target"], "feature_id"] + "||decoy"
     )
-    logger.info(f"len(dfs) = {len(dfs)}")
-    logger.info(f"len(dfs_fdr) = {len(dfs_fdr)}")
-    logger.info(f"sum(dfs_fdr['is_target']) = {sum(dfs_fdr['is_target'])}")
+    logger.info("Running target-decoy competition...")
+    logger.info(f"  Combined predictions: {len(dfs_fdr):,d}")
+    logger.info(f"  Target predictions: {sum(dfs_fdr['is_target']):,d}")
+    logger.info(f"  Decoy predictions: {len(dfs_fdr) - sum(dfs_fdr['is_target']):,d}")
 
-    # fdr estimation
+    # Step 3: Calculate cumulative FDR as we walk down the ranked list
+    # At position i: FDR ≈ (# decoys seen) / (# targets seen)
+    # Intuition: decoys represent "impossible" matches, so their rate estimates
+    # the rate of false matches among targets
     cumsum = range(1, len(dfs_fdr) + 1)
     cumsum_target = np.cumsum(np.array(dfs_fdr["is_target"].astype(int)))
     cumsum_decoy = cumsum - cumsum_target
@@ -144,7 +222,34 @@ def validate_FDR(
     col_aa_score: str,
     monotonic: bool = True,
 ) -> FDRValidationResult:
-    """Validate FDR estimation against known database matches.
+    """Validate estimated FDR against ground truth from database search.
+
+    Why Validation Matters
+    ----------------------
+    Estimated FDR from target-decoy competition is based on assumptions that may
+    not hold perfectly:
+    - Decoy spectra generate predictions with the same score distribution as false
+      positive target predictions
+    - The scoring function ranks true positives above false positives consistently
+
+    When we have ground truth labels (from database search on the same spectra),
+    we can measure "true FDR" - the actual fraction of incorrect predictions at
+    each score threshold. Comparing estimated vs true FDR reveals whether our
+    FDR estimation is:
+    - Well-calibrated (estimated ≈ true): the diagonal line
+    - Underestimated (estimated < true): dangerous, we're overconfident
+    - Overestimated (estimated > true): conservative but wasteful
+
+    True FDR Calculation
+    --------------------
+    We calculate correctness at multiple stringency levels:
+    - **Peptide-level**: Exact amino acid sequence match (strictest)
+    - **Ion-level 100%**: All theoretical fragment ions found in spectrum
+    - **Ion-level T%**: At least T% of theoretical fragment ions found
+
+    The ion-level metrics are more lenient because:
+    - Minor mass errors or missing/extra peaks don't invalidate the ID
+    - A partial match may still be biologically meaningful
 
     Args:
         target_csv: Path to target de novo results
@@ -153,13 +258,13 @@ def validate_FDR(
         db_csv: Path to database search results (ground truth)
         spectrum_file: Path to MGF spectrum file
         p_decoy: List of FDR thresholds
-        T_pct: Threshold percentage for ion matching
+        T_pct: Threshold percentage for ion matching (e.g., 0.9 = 90% of ions)
         col_score: Score column name for accuracy calculation
         col_aa_score: AA score column name
         monotonic: If True, filter to monotonically decreasing FDR (default: True)
 
     Returns:
-        Dictionary with validation results including DataFrames and FDR curves
+        FDRValidationResult with estimated and true FDR curves for plotting
     """
     db_psm = pd.read_csv(db_csv, keep_default_na=False)
     # Vectorized feature_id creation
@@ -184,7 +289,7 @@ def validate_FDR(
     # Save combined target-decoy results with estimated FDR
     target_decoy_csv = str(output_dir / f"{target_stem}_fdr_{decoy_stem}.csv")
     dfs_fdr.to_csv(target_decoy_csv, index=False)
-    logger.info(f"Saved FDR results to: {target_decoy_csv}")
+    logger.info(f"Saved combined target-decoy results to: {target_decoy_csv}")
 
     # Accuracy file for validation
     accuracy_file = str(output_dir / f"{target_stem}_fdr_{decoy_stem}_accuracy.csv")
@@ -198,46 +303,73 @@ def validate_FDR(
     denovo_df = denovo_df.set_index("feature_id")
     accuracy_df = pd.read_csv(accuracy_file, delimiter="\t", index_col="feature_id")
 
-    # Vectorized string operations
-    denovo_df["db_peptide"] = (
+    # Add accuracy metrics from the accuracy file to the de novo results
+    denovo_df["database_peptide"] = (
         accuracy_df["target_sequence"]
         .str.replace("C(Carbamidomethylation)", "C(+57.02)", regex=False)
         .str.replace("M(Oxidation)", "M(+15.99)", regex=False)
         .str.replace(",", "", regex=False)
     )
-    denovo_df["recall_AA"] = accuracy_df["recall_AA"]
-    denovo_df["predicted_len"] = accuracy_df["predicted_len"]
-    # Vectorized comparisons
-    denovo_df["recall_peptide"] = (
-        accuracy_df["recall_AA"] == accuracy_df["predicted_len"]
+    denovo_df["matched_amino_acid_count"] = accuracy_df["matched_amino_acid_count"]
+    denovo_df["predicted_sequence_length"] = accuracy_df["predicted_sequence_length"]
+    # Derive boolean correctness flags for FDR calculation
+    denovo_df["is_exact_sequence_match"] = (
+        accuracy_df["matched_amino_acid_count"]
+        == accuracy_df["predicted_sequence_length"]
     )
-    denovo_df["target_ion"] = accuracy_df["target_ion"]
-    denovo_df["matched_ion"] = accuracy_df["matched_ion"]
-    denovo_df["recall_peptide_I"] = (
-        accuracy_df["matched_ion"] == accuracy_df["target_ion"]
+    denovo_df["target_ion_count"] = accuracy_df["target_ion_count"]
+    denovo_df["matched_ion_count"] = accuracy_df["matched_ion_count"]
+    denovo_df["is_all_ions_matched"] = (
+        accuracy_df["matched_ion_count"] == accuracy_df["target_ion_count"]
     )
-    denovo_df["recall_peptide_T"] = (
-        accuracy_df["matched_ion"] >= accuracy_df["target_ion"] * T_pct
+    denovo_df["is_threshold_ions_matched"] = (
+        accuracy_df["matched_ion_count"] >= accuracy_df["target_ion_count"] * T_pct
     )
-    logger.info(f"len(denovo_df) = {len(denovo_df)}")
-    logger.info(f"  with recall_AA = {len(denovo_df[~denovo_df['recall_AA'].isna()])}")
-    # Fix the boolean indexing warning
-    mask = ~denovo_df["recall_AA"].isna() & denovo_df["is_target"]
-    logger.info(f"    is_target = {mask.sum()}")
+    logger.info("Validating FDR against database ground truth...")
+    has_accuracy = ~denovo_df["matched_amino_acid_count"].isna()
+    mask = has_accuracy & denovo_df["is_target"]
+    logger.info(f"  Total PSMs in analysis: {len(denovo_df):,d}")
+    logger.info(f"  PSMs with database ground truth: {has_accuracy.sum():,d}")
+    logger.info(f"  Target PSMs with ground truth (for validation): {mask.sum():,d}")
 
-    # calculate true FDR on annotated target spectra
-    df = denovo_df[~denovo_df["recall_AA"].isna() & denovo_df["is_target"]].copy()
+    # Calculate TRUE FDR on annotated target spectra (those with database matches)
+    # Unlike estimated FDR which uses decoy counts, true FDR uses actual correctness:
+    # true_FDR = (# incorrect predictions) / (# total predictions) at each threshold
+    #
+    # We filter to only "annotated" spectra - those that have a database match to
+    # compare against. Spectra without database matches cannot contribute to true FDR
+    # calculation since we don't know their ground truth.
+    df = denovo_df[has_accuracy & denovo_df["is_target"]].copy()
     cumsum = range(1, len(df) + 1)
-    cumsum_correct = np.cumsum(np.array(df["recall_peptide"].astype(int)))
+
+    # Peptide-level true FDR: prediction is correct only if ALL amino acids match
+    cumsum_correct = np.cumsum(np.array(df["is_exact_sequence_match"].astype(int)))
     cumsum_false = cumsum - cumsum_correct
     true_fdr = cumsum_false / cumsum
-    cumsum_correct = np.cumsum(np.array(df["recall_peptide_I"].astype(int)))
+
+    # Ion-level 100% true FDR: correct if ALL theoretical fragment ions are matched
+    # This is slightly more lenient than peptide-level (allows for equivalent masses
+    # like I/L substitution that produce identical fragmentation)
+    cumsum_correct = np.cumsum(np.array(df["is_all_ions_matched"].astype(int)))
     cumsum_false = cumsum - cumsum_correct
     true_fdr_I = cumsum_false / cumsum
-    cumsum_correct = np.cumsum(np.array(df["recall_peptide_T"].astype(int)))
+
+    # Ion-level threshold true FDR: correct if ≥T% of fragment ions are matched
+    # Most lenient metric - accepts partial matches as "correct enough"
+    cumsum_correct = np.cumsum(np.array(df["is_threshold_ions_matched"].astype(int)))
     cumsum_false = cumsum - cumsum_correct
     true_fdr_T = cumsum_false / cumsum
-    # Optionally filter to monotonically decreasing FDR to avoid bumps
+    # Monotonic filtering: remove "bumps" where FDR increases as threshold rises
+    #
+    # Theoretically, FDR should monotonically decrease as we raise the score threshold
+    # (keeping only higher-confidence predictions). However, finite sample sizes cause
+    # local fluctuations - you might have a stretch of correct predictions followed
+    # by a few incorrect ones, causing temporary FDR increases.
+    #
+    # For visualization, these bumps create confusing, non-monotonic curves. Monotonic
+    # filtering walks backward through the data (from highest to lowest threshold) and
+    # only keeps points where BOTH estimated and true FDR are at their minimum so far.
+    # This produces cleaner curves that better represent the underlying trend.
     if monotonic:
         min_est, min_true = 1.0, 1.0
         reported: list[tuple[float, int, float, float, float]] = []
@@ -248,9 +380,21 @@ def validate_FDR(
                 min_est = x
                 min_true = w
                 reported.append((x, y, z, v, w))
-        estimated_fdr_out, cumsum_out, true_fdr_out, true_fdr_I_out, true_fdr_T_out = (
-            zip(*reported)
-        )
+        if reported:
+            (
+                estimated_fdr_out,
+                cumsum_out,
+                true_fdr_out,
+                true_fdr_I_out,
+                true_fdr_T_out,
+            ) = zip(*reported)
+        else:
+            # No data points after filtering - return empty tuples
+            estimated_fdr_out = ()
+            cumsum_out = ()
+            true_fdr_out = ()
+            true_fdr_I_out = ()
+            true_fdr_T_out = ()
     else:
         # Return all data points without filtering
         estimated_fdr_out = tuple(df["estimated_fdr"])
@@ -270,7 +414,12 @@ def validate_FDR(
             if x <= min_est:
                 min_est = x
                 reported_full.append((x, y))
-        estimated_fdr_full, cumsum_full_out = zip(*reported_full)
+        if reported_full:
+            estimated_fdr_full, cumsum_full_out = zip(*reported_full)
+        else:
+            # No data points after filtering - return empty tuples
+            estimated_fdr_full = ()
+            cumsum_full_out = ()
     else:
         estimated_fdr_full = tuple(df_target["estimated_fdr"])
         cumsum_full_out = tuple(cumsum_full)
