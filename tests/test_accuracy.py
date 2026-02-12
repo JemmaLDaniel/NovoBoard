@@ -26,59 +26,34 @@ class TestParseRawSequence:
         assert peptide == ["P", "E", "P", "M(Oxidation)", "T", "I", "D", "E"]
 
     def test_deamidation_n(self):
-        """Test parsing peptide with deamidation on asparagine.
-
-        Note: N(Deamidation) is commented out in the default vocab,
-        so this returns False with the parsed peptide.
-        """
+        """Test parsing peptide with deamidation on asparagine."""
         ok, peptide = parse_raw_sequence("PEPN(+0.98)TIDE")
-        # Deamidation is parsed but not in vocab
         assert peptide == ["P", "E", "P", "N(Deamidation)", "T", "I", "D", "E"]
-        assert ok is False  # Not in default vocab
+        assert ok is True
 
     def test_deamidation_q(self):
-        """Test parsing peptide with deamidation on glutamine.
-
-        Note: Q(Deamidation) is commented out in the default vocab,
-        so this returns False with the parsed peptide.
-        """
+        """Test parsing peptide with deamidation on glutamine."""
         ok, peptide = parse_raw_sequence("PEPQ(+0.98)TIDE")
-        # Deamidation is parsed but not in vocab
         assert peptide == ["P", "E", "P", "Q(Deamidation)", "T", "I", "D", "E"]
-        assert ok is False  # Not in default vocab
+        assert ok is True
 
     def test_phosphorylation_s(self):
-        """Test parsing peptide with phosphorylation on serine.
-
-        Note: S(Phosphorylation) is commented out in the default vocab,
-        so this returns False with the parsed peptide.
-        """
+        """Test parsing peptide with phosphorylation on serine."""
         ok, peptide = parse_raw_sequence("PEPS(+79.97)TIDE")
-        # Phosphorylation is parsed but not in vocab
         assert peptide == ["P", "E", "P", "S(Phosphorylation)", "T", "I", "D", "E"]
-        assert ok is False  # Not in default vocab
+        assert ok is True
 
     def test_phosphorylation_t(self):
-        """Test parsing peptide with phosphorylation on threonine.
-
-        Note: T(Phosphorylation) is commented out in the default vocab,
-        so this returns False with the parsed peptide.
-        """
+        """Test parsing peptide with phosphorylation on threonine."""
         ok, peptide = parse_raw_sequence("PEPT(+79.97)IDE")
-        # Phosphorylation is parsed but not in vocab
         assert peptide == ["P", "E", "P", "T(Phosphorylation)", "I", "D", "E"]
-        assert ok is False  # Not in default vocab
+        assert ok is True
 
     def test_phosphorylation_y(self):
-        """Test parsing peptide with phosphorylation on tyrosine.
-
-        Note: Y(Phosphorylation) is commented out in the default vocab,
-        so this returns False with the parsed peptide.
-        """
+        """Test parsing peptide with phosphorylation on tyrosine."""
         ok, peptide = parse_raw_sequence("PEPY(+79.97)IDE")
-        # Phosphorylation is parsed but not in vocab
         assert peptide == ["P", "E", "P", "Y(Phosphorylation)", "I", "D", "E"]
-        assert ok is False  # Not in default vocab
+        assert ok is True
 
     def test_unknown_modification(self):
         """Test parsing peptide with unknown modification returns False."""
@@ -113,7 +88,7 @@ class TestConfig:
 
     def test_vocab_size(self):
         """Test vocabulary size is correct."""
-        assert config.vocab_size == 24
+        assert config.vocab_size == 30
 
     def test_vocab_contains_amino_acids(self):
         """Test vocabulary contains standard amino acids."""

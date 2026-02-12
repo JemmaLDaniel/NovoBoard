@@ -43,13 +43,13 @@ class TestReadDenovo:
         """Test that feature_id has correct format."""
         result = read_denovo(sample_denovo_csv)
 
-        # Format should be: source_file||scan
-        expected_ids = ["test.mgf||1", "test.mgf||2", "test.mgf||3"]
+        # Format should be: source_file_stem||scan (without .mgf suffix)
+        expected_ids = ["test||1", "test||2", "test||3"]
         assert list(result["feature_id"]) == expected_ids
 
     def test_selected_features_filter(self, sample_denovo_csv):
         """Test that selected_features parameter filters correctly."""
-        selected = {"test.mgf||1", "test.mgf||3"}
+        selected = {"test||1", "test||3"}
         result = read_denovo(sample_denovo_csv, selected_features=selected)
 
         assert len(result) == 2

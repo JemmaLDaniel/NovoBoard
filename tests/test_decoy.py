@@ -2,8 +2,17 @@
 
 import os
 import tempfile
+from pathlib import Path
+
 import pytest
+
 from novoboard.decoy import generate_decoy_mgf
+
+
+def get_decoy_path(mgf_path: str, rate: float = 0.5) -> str:
+    """Get the expected decoy output path for a given MGF file."""
+    p = Path(mgf_path)
+    return str(p.parent / f"{p.stem}_decoy_{rate:.2f}.mgf")
 
 
 class TestGenerateDecoyMgf:
@@ -41,7 +50,7 @@ END IONS
         yield temp_path
         # Cleanup
         os.unlink(temp_path)
-        decoy_path = temp_path + ".decoy_0.50.mgf"
+        decoy_path = get_decoy_path(temp_path)
         if os.path.exists(decoy_path):
             os.unlink(decoy_path)
 
@@ -49,14 +58,14 @@ END IONS
         """Test that generate_decoy_mgf creates an output file."""
         generate_decoy_mgf([sample_mgf_file], peak_sampling="random", sampling_rate=0.5)
 
-        decoy_path = sample_mgf_file + ".decoy_0.50.mgf"
+        decoy_path = get_decoy_path(sample_mgf_file)
         assert os.path.exists(decoy_path)
 
     def test_decoy_file_has_content(self, sample_mgf_file):
         """Test that the generated decoy file has content."""
         generate_decoy_mgf([sample_mgf_file], peak_sampling="random", sampling_rate=0.5)
 
-        decoy_path = sample_mgf_file + ".decoy_0.50.mgf"
+        decoy_path = get_decoy_path(sample_mgf_file)
         with open(decoy_path, "r") as f:
             content = f.read()
 
@@ -67,7 +76,7 @@ END IONS
         """Test that decoy file has same number of spectra."""
         generate_decoy_mgf([sample_mgf_file], peak_sampling="random", sampling_rate=0.5)
 
-        decoy_path = sample_mgf_file + ".decoy_0.50.mgf"
+        decoy_path = get_decoy_path(sample_mgf_file)
         with open(decoy_path, "r") as f:
             content = f.read()
 
