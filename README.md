@@ -56,6 +56,15 @@ novoboard accuracy \
 - `--score-column`: Column name for peptide score (default: "ALC (%)")
 - `--aa-score-column`: Column name for AA-level scores (default: "local confidence (%)")
 
+**Output:**
+- Files are saved in the same directory as the de novo file
+- `{denovo_stem}_accuracy.csv`: Per-peptide accuracy metrics
+- `{denovo_stem}_denovo_only.csv`: Peptides found only in de novo results
+- `{denovo_stem}_scan2fea.csv`: Scan to feature mapping
+- `{denovo_stem}_multifea.csv`: Multi-feature entries
+
+Example: `results/denovo.csv` → `results/denovo_accuracy.csv`, etc.
+
 ### 2. Generate Decoy Spectra
 
 Create decoy MGF files for FDR estimation:

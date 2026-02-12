@@ -132,10 +132,15 @@ class WorkerTest:
         self.target_file = target_file
         self.predicted_file = predicted_file
         self.spectrum_file = spectrum_file
-        self.accuracy_file = f"{predicted_file}.accuracy"
-        self.denovo_only_file = f"{predicted_file}.denovo_only"
-        self.scan2fea_file = f"{predicted_file}.scan2fea"
-        self.multifea_file = f"{predicted_file}.multifea"
+
+        # Build clean output filenames from predicted_file
+        input_path = Path(predicted_file)
+        stem = input_path.stem
+        parent = input_path.parent
+        self.accuracy_file = str(parent / f"{stem}_accuracy.csv")
+        self.denovo_only_file = str(parent / f"{stem}_denovo_only.csv")
+        self.scan2fea_file = str(parent / f"{stem}_scan2fea.csv")
+        self.multifea_file = str(parent / f"{stem}_multifea.csv")
         self.col_score = col_score
         self.col_aa_score = col_aa_score
         logger.info(f"target_file = {self.target_file}")
