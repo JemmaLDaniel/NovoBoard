@@ -103,6 +103,28 @@ novoboard fdr \
 - `--score-column`: Column name for peptide score (default: "ALC (%)")
 - `--aa-score-column`: Column name for AA-level scores (default: "local confidence (%)")
 - `--ion-threshold`: Ion matching threshold (default: 0.90)
+- `--labels`: Custom labels for each decoy file (in same order as `--decoy-files`)
+
+**Labels:**
+
+If `--labels` is not provided, labels are automatically extracted from filenames. For example, `helaqc_decoy_0.30_results.csv` becomes `30%`.
+
+```bash
+# With explicit labels (must match order of --decoy-files)
+novoboard fdr \
+    --target-file target.csv \
+    --decoy-files decoy_10.csv decoy_20.csv decoy_30.csv \
+    --labels "10%" "20%" "30%" \
+    --db-file db.csv \
+    --spectrum-file spectra.mgf
+
+# Without labels (auto-extracted from filenames)
+novoboard fdr \
+    --target-file target.csv \
+    --decoy-files decoy_0.10.csv decoy_0.20.csv decoy_0.30.csv \
+    --db-file db.csv \
+    --spectrum-file spectra.mgf
+```
 
 ### 4. Download Example Data
 
@@ -111,6 +133,36 @@ Download the ABRF example dataset:
 ```bash
 novoboard download --output-dir data
 ```
+
+### 5. Preprocess (Convert InstaNovo Output)
+
+Convert InstaNovo predictions to NovoBoard format:
+
+```bash
+# Convert de novo predictions
+novoboard preprocess \
+    --denovo-file ~/data/instanovo_preds.csv \
+    --denovo-output results/denovo.csv
+
+# Convert both de novo predictions and labeled MGF (database annotations)
+novoboard preprocess \
+    --denovo-file ~/data/instanovo_preds.csv \
+    --denovo-output results/denovo.csv \
+    --db-mgf-file ~/data/labeled_spectra.mgf \
+    --db-output results/db_results.csv
+```
+
+**Options:**
+- `--denovo-file`: Path to InstaNovo predictions CSV
+- `--denovo-output`: Path for converted de novo results CSV
+- `--db-mgf-file`: Path to labelled MGF file (for database annotations)
+- `--db-output`: Path for database results CSV
+
+**Notes:**
+- Supports tilde (`~`) expansion for home directory paths
+- Converts UNIMOD notation to NovoBoard format (e.g., `C[UNIMOD:4]` → `C(+57.02)`)
+- Filters peptides with unsupported modifications
+- Converts InstaNovo log probabilities to 0-100 scale scores
 
 ## Example Workflow
 
@@ -124,13 +176,20 @@ novoboard decoy --spectrum-file data/spectra.mgf
 # 3. Run de novo sequencing on target and decoy spectra
 # (using your preferred tool: PEAKS, Casanovo, InstaNovo, etc.)
 
-# 4. Calculate accuracy
+# 4. (If using InstaNovo) Preprocess predictions to NovoBoard format
+novoboard preprocess \
+    --denovo-file ~/instanovo_output/predictions.csv \
+    --denovo-output results/denovo.csv
+    --db-mgf-file ~/instanovo_input/spectra.mgf
+    --db-output results/db_output.csv
+
+# 5. Calculate accuracy
 novoboard accuracy \
     --db-file data/db_results.csv \
     --denovo-file results/denovo.csv \
     --spectrum-file data/spectra.mgf
 
-# 5. Validate FDR
+# 6. Validate FDR
 novoboard fdr \
     --target-file results/target.csv \
     --decoy-files results/decoy*.csv \
@@ -183,18 +242,74 @@ novoboard/
 ### De novo Results CSV
 
 Required columns:
-- `Source File`: Source spectrum file name
-- `Scan`: Scan number
-- `Peptide`: Peptide sequence with modifications
-- Score column (configurable, e.g., `ALC (%)`)
-- AA score column (configurable, e.g., `local confidence (%)`)
+
+| Column | Type | Description | Example |
+|--------|------|-------------|---------|
+| `Source File` | `str` | Source spectrum file name (`.mgf` suffix automatically stripped) | `"sample"` or `"sample.mgf"` |
+| `Scan` | `int` | Scan number | `1234` |
+| `Peptide` | `str` | Peptide sequence with modifications | `"PEPTC(+57.02)DE"` |
+| Score column | `float` | Peptide-level confidence score (configurable, default: `ALC (%)`) | `85.5` |
+| AA score column | `str` | Comma-separated per-residue confidence scores (configurable, default: `local confidence (%)`) | `"90,85,88,92,87,91,89"` |
+
+**Note:** The `Source File` value is used to match spectra between files. The `.mgf` suffix is automatically stripped when building internal feature IDs (e.g., `sample.mgf` becomes `sample||1234`).
+
+Extra columns will not be included in final results.
+
+### Supported Modifications
+
+NovoBoard supports a **limited set of post-translational modifications**. Peptides containing unsupported modifications will be **silently skipped** during accuracy calculations.
+
+| Residue | Modification | Input Format | Internal Representation | Mass Delta |
+|---------|--------------|--------------|-------------------------|------------|
+| C | Carbamidomethylation | `C(+57.02)` | `C(Carbamidomethylation)` | +57.02 Da |
+| M | Oxidation | `M(+15.99)` | `M(Oxidation)` | +15.99 Da |
+| N | Deamidation | `N(+0.98)` | `N(Deamidation)` | +0.98 Da |
+| Q | Deamidation | `Q(+0.98)` | `Q(Deamidation)` | +0.98 Da |
+| S | Phosphorylation | `S(+79.97)` | `S(Phosphorylation)` | +79.97 Da |
+| T | Phosphorylation | `T(+79.97)` | `T(Phosphorylation)` | +79.97 Da |
+| Y | Phosphorylation | `Y(+79.97)` | `Y(Phosphorylation)` | +79.97 Da |
+
+**Important limitations:**
+- **N-terminal modifications** (e.g., acetylation, carbamylation) are **not supported**
+- **Other PTMs** (e.g., methylation, ubiquitination) are **not supported**
+- Modification masses must match **exactly** (e.g., `+57.02`, not `+57.021`)
+- UNIMOD notation (e.g., `C[UNIMOD:4]`) is **not directly supported** — requires preprocessing
+
+#### Using Other De Novo Tools
+
+If your de novo tool uses a different modification format, you'll need to convert it:
+
+| Tool | Native Format | Conversion Needed |
+|------|---------------|-------------------|
+| PEAKS | `C(+57.02)` | ✅ Native support |
+| Casanovo | `C[UNIMOD:4]` | Convert to `C(+57.02)` |
+| InstaNovo | `C[UNIMOD:4]` | Convert to `C(+57.02)` |
+
+Example conversion from UNIMOD to NovoBoard format:
+
+| UNIMOD | NovoBoard |
+|--------|-----------|
+| `C[UNIMOD:4]` | `C(+57.02)` |
+| `M[UNIMOD:35]` | `M(+15.99)` |
+| `N[UNIMOD:7]` | `N(+0.98)` |
+| `Q[UNIMOD:7]` | `Q(+0.98)` |
+| `S[UNIMOD:21]` | `S(+79.97)` |
+| `T[UNIMOD:21]` | `T(+79.97)` |
+| `Y[UNIMOD:21]` | `Y(+79.97)` |
 
 ### Database Search Results CSV
 
 Required columns:
-- `Source File`: Source spectrum file name
-- `Scan`: Scan number
-- `Peptide`: Peptide sequence with modifications
+
+| Column | Type | Description | Example |
+|--------|------|-------------|---------|
+| `Source File` | `str` | Source spectrum file name (`.mgf` suffix automatically stripped) | `"sample"` or `"sample.mgf"` |
+| `Scan` | `int` | Scan number | `1234` |
+| `Peptide` | `str` | Peptide sequence with modifications | `"PEPTC(+57.02)DE"` |
+
+**Note:** The `Source File` value must match the de novo results file for spectrum matching. The `.mgf` suffix is automatically stripped.
+
+Extra columns will not be included in final results.
 
 ### MGF Spectrum File
 
@@ -202,6 +317,8 @@ Standard MGF format with:
 - `BEGIN IONS` / `END IONS` markers
 - `TITLE`, `PEPMASS`, `CHARGE`, `SCANS` headers
 - Peak list as `m/z intensity` pairs
+
+Extra headers will not be included in final results.
 
 ## Citation
 
