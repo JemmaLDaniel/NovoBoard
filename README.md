@@ -121,6 +121,8 @@ novoboard fdr \
 - `--ion-threshold`: Ion matching threshold (default: 0.90)
 - `--labels`: Custom labels for each decoy file (in same order as `--decoy-files`)
 - `--fdr-max`: Maximum FDR value for plot axes, between 0 and 1 (default: 0.05)
+- `--dpi`: Plot resolution in dots per inch (default: 150, use 300 for print quality)
+- `--no-monotonic`: Disable monotonic filtering to show all FDR data points
 
 **Labels:**
 

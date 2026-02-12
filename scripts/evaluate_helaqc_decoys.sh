@@ -21,4 +21,5 @@ novoboard fdr \
     --score-column "ALC (%)" \
     --aa-score-column "local confidence (%)" \
     --ion-threshold 0.90 \
-    --fdr-max 1.0
+    --fdr-max 0.1 \
+    --dpi 300 \

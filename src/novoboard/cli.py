@@ -118,6 +118,8 @@ def run_fdr_validation(
     ion_threshold: float = 0.90,
     labels: Sequence[str] | None = None,
     fdr_max: float = 0.05,
+    dpi: int = 150,
+    monotonic: bool = True,
 ) -> None:
     """Validate FDR estimation using target-decoy approach.
 
@@ -132,12 +134,15 @@ def run_fdr_validation(
         ion_threshold: Ion matching threshold percentage (default: 0.90)
         labels: Custom labels for each decoy (if None, extracted from filenames)
         fdr_max: Maximum value for FDR axis in plot (default: 0.05)
+        dpi: Resolution in dots per inch (default: 150)
+        monotonic: If True, filter to monotonically decreasing FDR (default: True)
     """
     logger.info(f"Target file: {target_file}")
     logger.info(f"Decoy files: {len(decoy_files)}")
     logger.info(f"Database file: {db_file}")
 
-    p_decoy = [x / 1000.0 for x in range(0, 50, 1)]
+    # Generate FDR thresholds up to fdr_max (with 0.001 step size)
+    p_decoy = [x / 1000.0 for x in range(0, int(fdr_max * 1000) + 1, 1)]
 
     results_list = [
         validate_FDR(
@@ -150,6 +155,7 @@ def run_fdr_validation(
             ion_threshold,
             col_score,
             col_aa_score,
+            monotonic=monotonic,
         )
         for decoy_file in decoy_files
     ]
@@ -159,7 +165,7 @@ def run_fdr_validation(
         labels = [extract_decoy_label(str(decoy_file)) for decoy_file in decoy_files]
     samples = range(1, len(decoy_files) + 1)
     plot_fdr_validation(
-        results_list, samples, str(output_file), labels=labels, fdr_max=fdr_max
+        results_list, samples, str(output_file), labels=labels, fdr_max=fdr_max, dpi=dpi
     )
 
 
@@ -374,6 +380,17 @@ Examples:
         metavar="FDR_MAX",
         help="Maximum FDR value for plot axes, between 0 and 1 (default: 0.05)",
     )
+    fdr_parser.add_argument(
+        "--dpi",
+        type=int,
+        default=150,
+        help="Plot resolution in dots per inch (default: 150, use 300 for print quality)",
+    )
+    fdr_parser.add_argument(
+        "--no-monotonic",
+        action="store_true",
+        help="Disable monotonic filtering to show all FDR data points (may look bumpy)",
+    )
 
     # =========================================================================
     # PREPROCESS command
@@ -464,6 +481,8 @@ Examples:
             args.ion_threshold,
             labels=getattr(args, "labels", None),
             fdr_max=args.fdr_max,
+            dpi=args.dpi,
+            monotonic=not args.no_monotonic,
         )
 
     elif args.command == "preprocess":

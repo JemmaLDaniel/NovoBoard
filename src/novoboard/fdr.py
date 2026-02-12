@@ -142,6 +142,7 @@ def validate_FDR(
     T_pct: float,
     col_score: str,
     col_aa_score: str,
+    monotonic: bool = True,
 ) -> FDRValidationResult:
     """Validate FDR estimation against known database matches.
 
@@ -155,6 +156,7 @@ def validate_FDR(
         T_pct: Threshold percentage for ion matching
         col_score: Score column name for accuracy calculation
         col_aa_score: AA score column name
+        monotonic: If True, filter to monotonically decreasing FDR (default: True)
 
     Returns:
         Dictionary with validation results including DataFrames and FDR curves
@@ -225,31 +227,43 @@ def validate_FDR(
     cumsum_correct = np.cumsum(np.array(df["recall_peptide_T"].astype(int)))
     cumsum_false = cumsum - cumsum_correct
     true_fdr_T = cumsum_false / cumsum
-    # only report entries with decreasing fdr from the bottom to avoid bumps
-    min_est, min_true = 1.0, 1.0
-    reported: list[tuple[float, int, float, float, float]] = []
-    for x, y, z, v, w in list(
-        zip(df["estimated_fdr"], cumsum, true_fdr, true_fdr_I, true_fdr_T)
-    )[::-1]:
-        if x <= min_est and w <= min_true:
-            min_est = x
-            min_true = w
-            reported.append((x, y, z, v, w))
-    estimated_fdr_out, cumsum_out, true_fdr_out, true_fdr_I_out, true_fdr_T_out = zip(
-        *reported
-    )
+    # Optionally filter to monotonically decreasing FDR to avoid bumps
+    if monotonic:
+        min_est, min_true = 1.0, 1.0
+        reported: list[tuple[float, int, float, float, float]] = []
+        for x, y, z, v, w in list(
+            zip(df["estimated_fdr"], cumsum, true_fdr, true_fdr_I, true_fdr_T)
+        )[::-1]:
+            if x <= min_est and w <= min_true:
+                min_est = x
+                min_true = w
+                reported.append((x, y, z, v, w))
+        estimated_fdr_out, cumsum_out, true_fdr_out, true_fdr_I_out, true_fdr_T_out = (
+            zip(*reported)
+        )
+    else:
+        # Return all data points without filtering
+        estimated_fdr_out = tuple(df["estimated_fdr"])
+        cumsum_out = tuple(cumsum)
+        true_fdr_out = tuple(true_fdr)
+        true_fdr_I_out = tuple(true_fdr_I)
+        true_fdr_T_out = tuple(true_fdr_T)
 
     # calculate estimated FDR and #PSMs on all target spectra
     df_target = denovo_df[denovo_df["is_target"]].copy()
     cumsum_full = range(1, len(df_target) + 1)
-    # only report entries with decreasing fdr from the bottom to avoid bumps
-    min_est = 1.0
-    reported_full: list[tuple[float, int]] = []
-    for x, y in list(zip(df_target["estimated_fdr"], cumsum_full))[::-1]:
-        if x <= min_est:
-            min_est = x
-            reported_full.append((x, y))
-    estimated_fdr_full, cumsum_full_out = zip(*reported_full)
+    if monotonic:
+        # Only report entries with decreasing fdr from the bottom to avoid bumps
+        min_est = 1.0
+        reported_full: list[tuple[float, int]] = []
+        for x, y in list(zip(df_target["estimated_fdr"], cumsum_full))[::-1]:
+            if x <= min_est:
+                min_est = x
+                reported_full.append((x, y))
+        estimated_fdr_full, cumsum_full_out = zip(*reported_full)
+    else:
+        estimated_fdr_full = tuple(df_target["estimated_fdr"])
+        cumsum_full_out = tuple(cumsum_full)
 
     return FDRValidationResult(
         denovo_df=denovo_df,

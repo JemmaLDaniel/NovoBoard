@@ -23,6 +23,7 @@ def plot_fdr_validation(
     output_path: str = "fdr_validation.png",
     labels: Sequence[str] | None = None,
     fdr_max: float = 0.05,
+    dpi: int = 150,
 ) -> None:
     """Plot FDR validation results.
 
@@ -32,6 +33,7 @@ def plot_fdr_validation(
         output_path: Path to save the output figure
         labels: Custom labels for each result (optional)
         fdr_max: Maximum value for FDR axis (default: 0.05)
+        dpi: Resolution in dots per inch (default: 150, use 300 for print quality)
     """
     if not results_list:
         logger.warning("No results to plot")
@@ -85,6 +87,6 @@ def plot_fdr_validation(
     ax[1].legend()
 
     fig.tight_layout()
-    fig.savefig(output_path)
-    logger.info(f"Figure saved to {output_path}")
+    fig.savefig(output_path, dpi=dpi)
+    logger.info(f"Figure saved to {output_path} (dpi={dpi})")
     pyplot.close(fig)
