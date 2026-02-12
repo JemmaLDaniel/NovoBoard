@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 import re
 import random
 import numpy as np
@@ -204,12 +205,19 @@ def generate_decoy_mgf(
     logger.info(f"seed = {seed}")
 
     for input_mgf in input_mgf_list:
+        # Build clean output filename: strip suffix, append decoy info, add .mgf
+        input_path = Path(input_mgf)
+        stem = input_path.stem  # filename without extension
+        parent = input_path.parent
+
         if peak_sampling == "permutation":
-            output_mgf = f"{input_mgf}.permutation.mgf"
+            output_mgf = str(parent / f"{stem}_permutation.mgf")
         elif peak_sampling == "500Da":
-            output_mgf = f"{input_mgf}.500Da.mgf"
+            output_mgf = str(parent / f"{stem}_500Da.mgf")
         else:
-            output_mgf = f"{input_mgf}.decoy_{sampling_rate:.2f}.mgf"
+            output_mgf = str(parent / f"{stem}_decoy_{sampling_rate:.2f}.mgf")
+
+        logger.info(f"Generating decoy: {input_mgf} -> {output_mgf}")
 
         # Collect peak distributions for noise sampling
         peaks_distr, removed_peaks_distr = _collect_peaks_distribution(

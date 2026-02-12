@@ -68,6 +68,13 @@ novoboard decoy \
     --seed 99
 ```
 
+**Output:**
+- Files are saved in the same directory as the input
+- Naming convention: `{input_stem}_decoy_{rate}.mgf`
+- Example: `spectra.mgf` → `spectra_decoy_0.50.mgf`
+- For `permutation` strategy: `spectra_permutation.mgf`
+- For `500Da` strategy: `spectra_500Da.mgf`
+
 **Options:**
 - `--spectrum-file`: Input MGF file(s) (required, accepts multiple)
 - `--sampling-strategy`: Strategy for peak sampling (default: random)
