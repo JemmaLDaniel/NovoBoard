@@ -13,8 +13,21 @@ from novoboard.accuracy import WorkerTest
 from novoboard.decoy import generate_decoy_mgf
 from novoboard.fdr import validate_FDR
 from novoboard.plotting import plot_fdr_validation
+from novoboard.preprocessing import run_preprocessing
 
 logger = logging.getLogger(__name__)
+
+
+def expand_path(path: Path) -> Path:
+    """Expand user home directory (~) and resolve path.
+    
+    Args:
+        path: Path that may contain ~ for home directory
+        
+    Returns:
+        Expanded and resolved Path
+    """
+    return Path(path).expanduser().resolve()
 
 
 def download_data(data_dir: Path) -> None:
@@ -83,6 +96,26 @@ def run_decoy_generation(
     generate_decoy_mgf(input_mgf_str_list, peak_sampling, sampling_rate, seed)
 
 
+def extract_decoy_label(filename: str) -> str:
+    """Extract decoy percentage label from filename.
+    
+    Looks for patterns like 'decoy_0.10' or 'decoy_10' in the filename
+    and converts to a human-readable percentage label like '10%'.
+    Falls back to the filename stem if no pattern is found.
+    """
+    import re
+    # Match patterns like decoy_0.10, decoy_0.5, decoy_10, etc.
+    match = re.search(r'decoy_(\d+\.?\d*)', filename, re.IGNORECASE)
+    if match:
+        value = float(match.group(1))
+        # If value is less than 1, assume it's a fraction (0.10 = 10%)
+        if value < 1:
+            return f"{int(value * 100)}%"
+        else:
+            return f"{int(value)}%"
+    return Path(filename).stem
+
+
 def run_fdr_validation(
     target_file: Path,
     decoy_files: Sequence[Path],
@@ -92,6 +125,7 @@ def run_fdr_validation(
     col_score: str,
     col_aa_score: str,
     ion_threshold: float = 0.90,
+    labels: Sequence[str] | None = None,
 ) -> None:
     """Validate FDR estimation using target-decoy approach.
     
@@ -104,6 +138,7 @@ def run_fdr_validation(
         col_score: Column name for peptide score
         col_aa_score: Column name for AA-level scores
         ion_threshold: Ion matching threshold percentage (default: 0.90)
+        labels: Custom labels for each decoy (if None, extracted from filenames)
     """
     logger.info(f"Target file: {target_file}")
     logger.info(f"Decoy files: {len(decoy_files)}")
@@ -126,9 +161,11 @@ def run_fdr_validation(
         for decoy_file in decoy_files
     ]
     
-    # Use file indices as sample labels
+    # Use provided labels or extract from filenames
+    if labels is None:
+        labels = [extract_decoy_label(str(decoy_file)) for decoy_file in decoy_files]
     samples = range(1, len(decoy_files) + 1)
-    plot_fdr_validation(results_list, samples, str(output_file))
+    plot_fdr_validation(results_list, samples, str(output_file), labels=labels)
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -152,6 +189,13 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Preprocess InstaNovo predictions for NovoBoard
+  novoboard preprocess --denovo-file ~/data/instanovo_preds.csv --denovo-output results/denovo.csv
+
+  # Preprocess both de novo and database files
+  novoboard preprocess --denovo-file ~/data/preds.csv --denovo-output results/denovo.csv \\
+                       --db-mgf-file ~/data/labeled.mgf --db-output results/db.csv
+
   # Calculate accuracy of de novo predictions
   novoboard accuracy --db-file db_results.csv --denovo-file denovo.csv --spectrum-file spectra.mgf
 
@@ -318,6 +362,40 @@ Examples:
         default=0.90,
         help='Ion matching threshold percentage (default: 0.90)'
     )
+    fdr_parser.add_argument(
+        '--labels',
+        type=str,
+        nargs='+',
+        help='Labels for each decoy file (in same order as --decoy-files). If not provided, extracts from filenames.'
+    )
+    
+    # =========================================================================
+    # PREPROCESS command
+    # =========================================================================
+    preprocess_parser = subparsers.add_parser(
+        'preprocess',
+        help='Convert InstaNovo output to NovoBoard format'
+    )
+    preprocess_parser.add_argument(
+        '--denovo-file',
+        type=Path,
+        help='Path to InstaNovo predictions CSV file'
+    )
+    preprocess_parser.add_argument(
+        '--denovo-output',
+        type=Path,
+        help='Path for de novo results output CSV'
+    )
+    preprocess_parser.add_argument(
+        '--db-mgf-file',
+        type=Path,
+        help='Path to labeled MGF file (for extracting database annotations)'
+    )
+    preprocess_parser.add_argument(
+        '--db-output',
+        type=Path,
+        help='Path for database results output CSV'
+    )
     
     # Parse arguments
     args = parser.parse_args()
@@ -383,6 +461,42 @@ Examples:
             args.score_column,
             args.aa_score_column,
             args.ion_threshold,
+            labels=getattr(args, 'labels', None),
+        )
+    
+    elif args.command == 'preprocess':
+        # Validate at least one input/output pair is provided
+        if not (args.denovo_file or args.db_mgf_file):
+            logger.error("Must specify at least --denovo-file or --db-mgf-file")
+            sys.exit(1)
+        
+        if args.denovo_file and not args.denovo_output:
+            logger.error("--denovo-output is required when --denovo-file is specified")
+            sys.exit(1)
+        
+        if args.db_mgf_file and not args.db_output:
+            logger.error("--db-output is required when --db-mgf-file is specified")
+            sys.exit(1)
+        
+        # Expand paths (handle ~ for home directory)
+        denovo_file = expand_path(args.denovo_file) if args.denovo_file else None
+        denovo_output = expand_path(args.denovo_output) if args.denovo_output else None
+        db_mgf_file = expand_path(args.db_mgf_file) if args.db_mgf_file else None
+        db_output = expand_path(args.db_output) if args.db_output else None
+        
+        # Validate input files exist
+        if denovo_file and not denovo_file.exists():
+            logger.error(f"File not found: {denovo_file}")
+            sys.exit(1)
+        if db_mgf_file and not db_mgf_file.exists():
+            logger.error(f"File not found: {db_mgf_file}")
+            sys.exit(1)
+        
+        run_preprocessing(
+            denovo_file=denovo_file,
+            denovo_output=denovo_output,
+            db_mgf_file=db_mgf_file,
+            db_output=db_output,
         )
     
     logger.info("NovoBoard analysis complete!")
