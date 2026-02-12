@@ -6,10 +6,12 @@ requires-python = ">=3.12"
 dependencies = [
     "biopython>=1.86",
     "gdown>=5.0",
+    "matchms>=0.31.0",
     "matplotlib>=3.8",
     "matplotlib-venn>=1.1.2",
-    "numpy>=2.4.1",
-    "pandas>=3.0.0",
+    "numpy>=1.24",
+    "pandas>=2.2.3",
+    "polars>=1.38.0",
     "seaborn>=0.13.2",
 ]
 
