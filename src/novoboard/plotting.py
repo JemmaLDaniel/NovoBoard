@@ -55,23 +55,22 @@ def plot_fdr_validation(
     # Assign colors (cycle through palette if needed)
     colors = [DEFAULT_COLORS[i % len(DEFAULT_COLORS)] for i in range(len(results_list))]
 
-    fig, ax = pyplot.subplots(1, 2, figsize=(9, 4))
+    fig, ax = pyplot.subplots(1, 3, figsize=(14, 4))
 
     for results, color, label in zip(results_list, colors, labels):
         ax[0].plot(results.estimated_fdr, results.true_fdr_T, color=color, label=label)
         ax[1].plot(results.cumsum, results.estimated_fdr, color=color, label=label)
 
-    # Diagonal reference line
-    ax[0].plot(
-        [0, fdr_max], [0, fdr_max], color="black", linestyle="--", label="True FDR"
-    )
+    # Panel 0: Calibration plot (Estimated FDR vs True FDR)
+    ax[0].plot([0, fdr_max], [0, fdr_max], color="black", linestyle="--", label="Ideal")
     ax[0].set_xlim(0, fdr_max)
     ax[0].set_ylim(0, fdr_max)
     ax[0].set_xlabel("Estimated FDR")
     ax[0].set_ylabel("True FDR")
+    ax[0].set_title("FDR Calibration")
     ax[0].legend()
 
-    # Add true FDR line to second plot (use middle result if available)
+    # Panel 1: PSM count vs Estimated FDR
     mid_idx = len(results_list) // 2
     if results_list:
         ax[1].plot(
@@ -84,7 +83,39 @@ def plot_fdr_validation(
     ax[1].set_ylim(0, fdr_max)
     ax[1].set_xlabel("Number of PSMs")
     ax[1].set_ylabel("FDR")
+    ax[1].set_title("PSMs vs Estimated FDR")
     ax[1].legend()
+
+    # Panel 2: FDR comparison - True FDR (database) vs Estimated FDR (each decoy)
+    # X-axis is rank position (1 = highest confidence prediction)
+    # Data comes reversed from filtering, so reverse it back
+    # Plot true FDR line first (from first result, as reference)
+    if results_list:
+        true_fdr_reversed = list(reversed(results_list[0].true_fdr_T))
+        ranks = range(1, len(true_fdr_reversed) + 1)
+        ax[2].plot(
+            ranks,
+            true_fdr_reversed,
+            color="black",
+            linewidth=2,
+            label="True FDR",
+        )
+    # Plot estimated FDR for each decoy
+    for results, color, label in zip(results_list, colors, labels):
+        est_fdr_reversed = list(reversed(results.estimated_fdr))
+        ranks = range(1, len(est_fdr_reversed) + 1)
+        ax[2].plot(
+            ranks,
+            est_fdr_reversed,
+            color=color,
+            linestyle="--",
+            label=f"Est. FDR ({label})",
+        )
+    ax[2].set_ylim(0, fdr_max)
+    ax[2].set_xlabel("Rank (by model confidence)")
+    ax[2].set_ylabel("FDR")
+    ax[2].set_title("True vs Estimated FDR")
+    ax[2].legend()
 
     fig.tight_layout()
     fig.savefig(output_path, dpi=dpi)

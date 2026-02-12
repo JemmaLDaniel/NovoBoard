@@ -124,6 +124,16 @@ novoboard fdr \
 - `--dpi`: Plot resolution in dots per inch (default: 150, use 300 for print quality)
 - `--no-monotonic`: Disable monotonic filtering to show all FDR data points
 
+**Output:**
+- `{output-file}`: FDR validation plot (PNG) with three panels:
+  - FDR Calibration (Estimated vs True FDR)
+  - PSMs vs Estimated FDR
+  - True vs Estimated FDR comparison
+- `{target_stem}_fdr_{decoy_stem}.csv`: Combined target-decoy results with estimated FDR
+- `{target_stem}_fdr_{decoy_stem}_accuracy.csv`: Per-PSM accuracy metrics
+
+Example: `target.csv` + `decoy_0.30.csv` → `target_fdr_decoy_0.30.csv`, `target_fdr_decoy_0.30_accuracy.csv`
+
 **Labels:**
 
 If `--labels` is not provided, labels are automatically extracted from filenames. For example, `helaqc_decoy_0.30_results.csv` becomes `30%`.

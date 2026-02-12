@@ -174,10 +174,20 @@ def validate_FDR(
         target_csv, decoy_csv, engine_score, p_decoy, selected_features
     )
 
-    decoy_name = Path(decoy_csv).name
-    target_decoy_csv = f"{target_csv}-{decoy_name}"
+    # Build clean output filenames
+    target_path = Path(target_csv)
+    decoy_path = Path(decoy_csv)
+    target_stem = target_path.stem
+    decoy_stem = decoy_path.stem
+    output_dir = target_path.parent
+
+    # Save combined target-decoy results with estimated FDR
+    target_decoy_csv = str(output_dir / f"{target_stem}_fdr_{decoy_stem}.csv")
     dfs_fdr.to_csv(target_decoy_csv, index=False)
-    accuracy_file = f"{target_decoy_csv}.accuracy"
+    logger.info(f"Saved FDR results to: {target_decoy_csv}")
+
+    # Accuracy file for validation
+    accuracy_file = str(output_dir / f"{target_stem}_fdr_{decoy_stem}_accuracy.csv")
     if not Path(accuracy_file).is_file():
         worker_test = WorkerTest(
             db_csv, target_decoy_csv, spectrum_file, col_score, col_aa_score
