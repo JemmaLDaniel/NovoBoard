@@ -22,6 +22,7 @@ def plot_fdr_validation(
     samples: Sequence[int] | None = None,
     output_path: str = "fdr_validation.png",
     labels: Sequence[str] | None = None,
+    fdr_max: float = 0.05,
 ) -> None:
     """Plot FDR validation results.
 
@@ -30,6 +31,7 @@ def plot_fdr_validation(
         samples: Sample indices for coloring (optional, defaults to 1..n)
         output_path: Path to save the output figure
         labels: Custom labels for each result (optional)
+        fdr_max: Maximum value for FDR axis (default: 0.05)
     """
     if not results_list:
         logger.warning("No results to plot")
@@ -58,8 +60,11 @@ def plot_fdr_validation(
         ax[1].plot(results.cumsum, results.estimated_fdr, color=color, label=label)
 
     # Diagonal reference line
-    ax[0].plot([0, 0.05], [0, 0.05], color="black", linestyle="--", label="True FDR")
-    ax[0].set_xlim(0, 0.05)
+    ax[0].plot(
+        [0, fdr_max], [0, fdr_max], color="black", linestyle="--", label="True FDR"
+    )
+    ax[0].set_xlim(0, fdr_max)
+    ax[0].set_ylim(0, fdr_max)
     ax[0].set_xlabel("Estimated FDR")
     ax[0].set_ylabel("True FDR")
     ax[0].legend()
@@ -74,7 +79,7 @@ def plot_fdr_validation(
             linestyle="--",
             label="True FDR",
         )
-    ax[1].set_ylim(0, 0.05)
+    ax[1].set_ylim(0, fdr_max)
     ax[1].set_xlabel("Number of PSMs")
     ax[1].set_ylabel("FDR")
     ax[1].legend()

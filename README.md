@@ -120,6 +120,7 @@ novoboard fdr \
 - `--aa-score-column`: Column name for AA-level scores (default: "local confidence (%)")
 - `--ion-threshold`: Ion matching threshold (default: 0.90)
 - `--labels`: Custom labels for each decoy file (in same order as `--decoy-files`)
+- `--fdr-max`: Maximum FDR value for plot axes, between 0 and 1 (default: 0.05)
 
 **Labels:**
 

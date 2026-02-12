@@ -117,6 +117,7 @@ def run_fdr_validation(
     col_aa_score: str,
     ion_threshold: float = 0.90,
     labels: Sequence[str] | None = None,
+    fdr_max: float = 0.05,
 ) -> None:
     """Validate FDR estimation using target-decoy approach.
 
@@ -130,6 +131,7 @@ def run_fdr_validation(
         col_aa_score: Column name for AA-level scores
         ion_threshold: Ion matching threshold percentage (default: 0.90)
         labels: Custom labels for each decoy (if None, extracted from filenames)
+        fdr_max: Maximum value for FDR axis in plot (default: 0.05)
     """
     logger.info(f"Target file: {target_file}")
     logger.info(f"Decoy files: {len(decoy_files)}")
@@ -156,7 +158,9 @@ def run_fdr_validation(
     if labels is None:
         labels = [extract_decoy_label(str(decoy_file)) for decoy_file in decoy_files]
     samples = range(1, len(decoy_files) + 1)
-    plot_fdr_validation(results_list, samples, str(output_file), labels=labels)
+    plot_fdr_validation(
+        results_list, samples, str(output_file), labels=labels, fdr_max=fdr_max
+    )
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -356,6 +360,21 @@ Examples:
         help="Labels for each decoy file (in same order as --decoy-files). If not provided, extracts from filenames.",
     )
 
+    def fdr_max_type(value: str) -> float:
+        """Validate FDR max is between 0 and 1."""
+        fval = float(value)
+        if not 0 < fval <= 1.0:
+            raise argparse.ArgumentTypeError(f"must be between 0 and 1, got {fval}")
+        return fval
+
+    fdr_parser.add_argument(
+        "--fdr-max",
+        type=fdr_max_type,
+        default=0.05,
+        metavar="FDR_MAX",
+        help="Maximum FDR value for plot axes, between 0 and 1 (default: 0.05)",
+    )
+
     # =========================================================================
     # PREPROCESS command
     # =========================================================================
@@ -444,6 +463,7 @@ Examples:
             args.aa_score_column,
             args.ion_threshold,
             labels=getattr(args, "labels", None),
+            fdr_max=args.fdr_max,
         )
 
     elif args.command == "preprocess":
