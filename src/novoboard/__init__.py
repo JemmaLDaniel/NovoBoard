@@ -13,16 +13,16 @@ def setup_logging(
     format_str: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 ) -> None:
     """Configure logging for NovoBoard.
-    
+
     Call this from CLI or scripts to enable console logging.
-    
+
     Args:
         level: Logging level (default: INFO)
         format_str: Log message format string
     """
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter(format_str))
-    
+
     logger = logging.getLogger(__name__)
     logger.setLevel(level)
     logger.addHandler(handler)

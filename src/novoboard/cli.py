@@ -20,10 +20,10 @@ logger = logging.getLogger(__name__)
 
 def expand_path(path: Path) -> Path:
     """Expand user home directory (~) and resolve path.
-    
+
     Args:
         path: Path that may contain ~ for home directory
-        
+
     Returns:
         Expanded and resolved Path
     """
@@ -32,16 +32,18 @@ def expand_path(path: Path) -> Path:
 
 def download_data(data_dir: Path) -> None:
     """Download example ABRF data from Google Drive using gdown.
-    
+
     Args:
         data_dir: Directory to download data into
     """
     import gdown
-    
-    folder_url = "https://drive.google.com/drive/folders/1_6azR4-YjTUfRYdsXbFhZL9lFvjdrIDh"
-    
+
+    folder_url = (
+        "https://drive.google.com/drive/folders/1_6azR4-YjTUfRYdsXbFhZL9lFvjdrIDh"
+    )
+
     data_dir.mkdir(parents=True, exist_ok=True)
-    
+
     logger.info(f"Downloading data to {data_dir}...")
     gdown.download_folder(folder_url, output=str(data_dir), quiet=False)
     logger.info("Download complete.")
@@ -55,7 +57,7 @@ def run_accuracy(
     col_aa_score: str,
 ) -> None:
     """Calculate accuracy of de novo predictions against database search results.
-    
+
     Args:
         db_file: Path to database search results CSV
         denovo_file: Path to de novo sequencing results CSV
@@ -66,7 +68,7 @@ def run_accuracy(
     logger.info(f"Database file: {db_file}")
     logger.info(f"De novo file: {denovo_file}")
     logger.info(f"Spectrum file: {spectrum_file}")
-    
+
     worker_test = WorkerTest(
         str(db_file),
         str(denovo_file),
@@ -79,12 +81,12 @@ def run_accuracy(
 
 def run_decoy_generation(
     spectrum_files: Sequence[Path],
-    peak_sampling: str = 'random',
+    peak_sampling: str = "random",
     sampling_rate: float = config.DEFAULT_SAMPLING_RATE,
     seed: int = 99,
 ) -> None:
     """Generate decoy MGF files for FDR estimation.
-    
+
     Args:
         spectrum_files: List of input MGF spectrum files
         peak_sampling: Peak sampling strategy
@@ -98,14 +100,15 @@ def run_decoy_generation(
 
 def extract_decoy_label(filename: str) -> str:
     """Extract decoy percentage label from filename.
-    
+
     Looks for patterns like 'decoy_0.10' or 'decoy_10' in the filename
     and converts to a human-readable percentage label like '10%'.
     Falls back to the filename stem if no pattern is found.
     """
     import re
+
     # Match patterns like decoy_0.10, decoy_0.5, decoy_10, etc.
-    match = re.search(r'decoy_(\d+\.?\d*)', filename, re.IGNORECASE)
+    match = re.search(r"decoy_(\d+\.?\d*)", filename, re.IGNORECASE)
     if match:
         value = float(match.group(1))
         # If value is less than 1, assume it's a fraction (0.10 = 10%)
@@ -128,7 +131,7 @@ def run_fdr_validation(
     labels: Sequence[str] | None = None,
 ) -> None:
     """Validate FDR estimation using target-decoy approach.
-    
+
     Args:
         target_file: Path to target de novo results CSV
         decoy_files: Paths to decoy de novo results CSVs
@@ -143,9 +146,9 @@ def run_fdr_validation(
     logger.info(f"Target file: {target_file}")
     logger.info(f"Decoy files: {len(decoy_files)}")
     logger.info(f"Database file: {db_file}")
-    
-    p_decoy = [x / 1000. for x in range(0, 50, 1)]
-    
+
+    p_decoy = [x / 1000.0 for x in range(0, 50, 1)]
+
     results_list = [
         validate_FDR(
             str(target_file),
@@ -157,10 +160,10 @@ def run_fdr_validation(
             ion_threshold,
             col_score,
             col_aa_score,
-        ) 
+        )
         for decoy_file in decoy_files
     ]
-    
+
     # Use provided labels or extract from filenames
     if labels is None:
         labels = [extract_decoy_label(str(decoy_file)) for decoy_file in decoy_files]
@@ -170,7 +173,7 @@ def run_fdr_validation(
 
 def setup_logging(verbose: bool = False) -> None:
     """Configure logging for CLI usage.
-    
+
     Args:
         verbose: If True, set DEBUG level; otherwise INFO level
     """
@@ -185,7 +188,7 @@ def setup_logging(verbose: bool = False) -> None:
 def main() -> None:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
-        description='NovoBoard - Framework for evaluating de novo peptide sequencing',
+        description="NovoBoard - Framework for evaluating de novo peptide sequencing",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -208,217 +211,206 @@ Examples:
 
   # Download example ABRF dataset
   novoboard download --output-dir data
-        """
+        """,
     )
-    
+
     # Global arguments
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose (debug) logging'
+        "-v", "--verbose", action="store_true", help="Enable verbose (debug) logging"
     )
-    
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
-    
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
     # =========================================================================
     # DOWNLOAD command
     # =========================================================================
     download_parser = subparsers.add_parser(
-        'download',
-        help='Download example ABRF dataset from Google Drive'
+        "download", help="Download example ABRF dataset from Google Drive"
     )
     download_parser.add_argument(
-        '--output-dir',
+        "--output-dir",
         type=Path,
-        default=Path('data'),
-        help='Directory to download data into (default: data/)'
+        default=Path("data"),
+        help="Directory to download data into (default: data/)",
     )
-    
+
     # =========================================================================
     # ACCURACY command
     # =========================================================================
     accuracy_parser = subparsers.add_parser(
-        'accuracy',
-        help='Calculate accuracy of de novo predictions against database search'
+        "accuracy",
+        help="Calculate accuracy of de novo predictions against database search",
     )
     accuracy_parser.add_argument(
-        '--db-file',
+        "--db-file",
         type=Path,
         required=True,
-        help='Path to database search results CSV'
+        help="Path to database search results CSV",
     )
     accuracy_parser.add_argument(
-        '--denovo-file',
+        "--denovo-file",
         type=Path,
         required=True,
-        help='Path to de novo sequencing results CSV'
+        help="Path to de novo sequencing results CSV",
     )
     accuracy_parser.add_argument(
-        '--spectrum-file',
-        type=Path,
-        required=True,
-        help='Path to MGF spectrum file'
+        "--spectrum-file", type=Path, required=True, help="Path to MGF spectrum file"
     )
     accuracy_parser.add_argument(
-        '--score-column',
+        "--score-column",
         type=str,
-        default='ALC (%)',
-        help='Column name for peptide score (default: "ALC (%%)")'
+        default="ALC (%)",
+        help='Column name for peptide score (default: "ALC (%%)")',
     )
     accuracy_parser.add_argument(
-        '--aa-score-column',
+        "--aa-score-column",
         type=str,
-        default='local confidence (%)',
-        help='Column name for AA-level scores (default: "local confidence (%%)")'
+        default="local confidence (%)",
+        help='Column name for AA-level scores (default: "local confidence (%%)")',
     )
-    
+
     # =========================================================================
     # DECOY command
     # =========================================================================
     decoy_parser = subparsers.add_parser(
-        'decoy',
-        help='Generate decoy MGF files for FDR estimation'
+        "decoy", help="Generate decoy MGF files for FDR estimation"
     )
     decoy_parser.add_argument(
-        '--spectrum-file',
+        "--spectrum-file",
         type=Path,
         required=True,
-        nargs='+',
-        help='Path(s) to input MGF spectrum file(s)'
+        nargs="+",
+        help="Path(s) to input MGF spectrum file(s)",
     )
     decoy_parser.add_argument(
-        '--sampling-strategy',
+        "--sampling-strategy",
         type=str,
-        default='random',
-        choices=['random', 'intensity', 'intensity_mass', 'permutation', '500Da', 'distance'],
-        help='Peak sampling strategy (default: random)'
+        default="random",
+        choices=[
+            "random",
+            "intensity",
+            "intensity_mass",
+            "permutation",
+            "500Da",
+            "distance",
+        ],
+        help="Peak sampling strategy (default: random)",
     )
     decoy_parser.add_argument(
-        '--sampling-rate',
+        "--sampling-rate",
         type=float,
         default=config.DEFAULT_SAMPLING_RATE,
-        help=f'Fraction of peaks to keep (default: {config.DEFAULT_SAMPLING_RATE})'
+        help=f"Fraction of peaks to keep (default: {config.DEFAULT_SAMPLING_RATE})",
     )
     decoy_parser.add_argument(
-        '--seed',
+        "--seed",
         type=int,
         default=99,
-        help='Random seed for reproducibility (default: 99)'
+        help="Random seed for reproducibility (default: 99)",
     )
-    
+
     # =========================================================================
     # FDR command
     # =========================================================================
     fdr_parser = subparsers.add_parser(
-        'fdr',
-        help='Validate FDR estimation using target-decoy approach'
+        "fdr", help="Validate FDR estimation using target-decoy approach"
     )
     fdr_parser.add_argument(
-        '--target-file',
+        "--target-file",
         type=Path,
         required=True,
-        help='Path to target de novo results CSV'
+        help="Path to target de novo results CSV",
     )
     fdr_parser.add_argument(
-        '--decoy-files',
+        "--decoy-files",
         type=Path,
         required=True,
-        nargs='+',
-        help='Path(s) to decoy de novo results CSV(s)'
+        nargs="+",
+        help="Path(s) to decoy de novo results CSV(s)",
     )
     fdr_parser.add_argument(
-        '--db-file',
+        "--db-file",
         type=Path,
         required=True,
-        help='Path to database search results CSV (ground truth)'
+        help="Path to database search results CSV (ground truth)",
     )
     fdr_parser.add_argument(
-        '--spectrum-file',
+        "--spectrum-file", type=Path, required=True, help="Path to MGF spectrum file"
+    )
+    fdr_parser.add_argument(
+        "--output-file",
         type=Path,
-        required=True,
-        help='Path to MGF spectrum file'
+        default=Path("fdr_validation.png"),
+        help="Path for output plot (default: fdr_validation.png)",
     )
     fdr_parser.add_argument(
-        '--output-file',
-        type=Path,
-        default=Path('fdr_validation.png'),
-        help='Path for output plot (default: fdr_validation.png)'
-    )
-    fdr_parser.add_argument(
-        '--score-column',
+        "--score-column",
         type=str,
-        default='ALC (%)',
-        help='Column name for peptide score (default: "ALC (%%)")'
+        default="ALC (%)",
+        help='Column name for peptide score (default: "ALC (%%)")',
     )
     fdr_parser.add_argument(
-        '--aa-score-column',
+        "--aa-score-column",
         type=str,
-        default='local confidence (%)',
-        help='Column name for AA-level scores (default: "local confidence (%%)")'
+        default="local confidence (%)",
+        help='Column name for AA-level scores (default: "local confidence (%%)")',
     )
     fdr_parser.add_argument(
-        '--ion-threshold',
+        "--ion-threshold",
         type=float,
         default=0.90,
-        help='Ion matching threshold percentage (default: 0.90)'
+        help="Ion matching threshold percentage (default: 0.90)",
     )
     fdr_parser.add_argument(
-        '--labels',
+        "--labels",
         type=str,
-        nargs='+',
-        help='Labels for each decoy file (in same order as --decoy-files). If not provided, extracts from filenames.'
+        nargs="+",
+        help="Labels for each decoy file (in same order as --decoy-files). If not provided, extracts from filenames.",
     )
-    
+
     # =========================================================================
     # PREPROCESS command
     # =========================================================================
     preprocess_parser = subparsers.add_parser(
-        'preprocess',
-        help='Convert InstaNovo output to NovoBoard format'
+        "preprocess", help="Convert InstaNovo output to NovoBoard format"
     )
     preprocess_parser.add_argument(
-        '--denovo-file',
-        type=Path,
-        help='Path to InstaNovo predictions CSV file'
+        "--denovo-file", type=Path, help="Path to InstaNovo predictions CSV file"
     )
     preprocess_parser.add_argument(
-        '--denovo-output',
-        type=Path,
-        help='Path for de novo results output CSV'
+        "--denovo-output", type=Path, help="Path for de novo results output CSV"
     )
     preprocess_parser.add_argument(
-        '--db-mgf-file',
+        "--db-mgf-file",
         type=Path,
-        help='Path to labeled MGF file (for extracting database annotations)'
+        help="Path to labeled MGF file (for extracting database annotations)",
     )
     preprocess_parser.add_argument(
-        '--db-output',
-        type=Path,
-        help='Path for database results output CSV'
+        "--db-output", type=Path, help="Path for database results output CSV"
     )
-    
+
     # Parse arguments
     args = parser.parse_args()
-    
+
     # Set up logging
     setup_logging(verbose=args.verbose)
-    
+
     # Handle no command
     if args.command is None:
         parser.print_help()
         sys.exit(0)
-    
+
     # Execute command
-    if args.command == 'download':
+    if args.command == "download":
         download_data(args.output_dir)
-        
-    elif args.command == 'accuracy':
+
+    elif args.command == "accuracy":
         # Validate files exist
         for f in [args.db_file, args.denovo_file, args.spectrum_file]:
             if not f.exists():
                 logger.error(f"File not found: {f}")
                 sys.exit(1)
-        
+
         run_accuracy(
             args.db_file,
             args.denovo_file,
@@ -426,32 +418,34 @@ Examples:
             args.score_column,
             args.aa_score_column,
         )
-        
-    elif args.command == 'decoy':
+
+    elif args.command == "decoy":
         # Validate files exist
         for f in args.spectrum_file:
             if not f.exists():
                 logger.error(f"File not found: {f}")
                 sys.exit(1)
-        
+
         run_decoy_generation(
             args.spectrum_file,
             args.sampling_strategy,
             args.sampling_rate,
             args.seed,
         )
-        
-    elif args.command == 'fdr':
+
+    elif args.command == "fdr":
         # Validate files exist
-        files_to_check = [args.target_file, args.db_file, args.spectrum_file] + list(args.decoy_files)
+        files_to_check = [args.target_file, args.db_file, args.spectrum_file] + list(
+            args.decoy_files
+        )
         for f in files_to_check:
             if not f.exists():
                 logger.error(f"File not found: {f}")
                 sys.exit(1)
-        
+
         # Create output directory if needed
         args.output_file.parent.mkdir(parents=True, exist_ok=True)
-        
+
         run_fdr_validation(
             args.target_file,
             args.decoy_files,
@@ -461,29 +455,29 @@ Examples:
             args.score_column,
             args.aa_score_column,
             args.ion_threshold,
-            labels=getattr(args, 'labels', None),
+            labels=getattr(args, "labels", None),
         )
-    
-    elif args.command == 'preprocess':
+
+    elif args.command == "preprocess":
         # Validate at least one input/output pair is provided
         if not (args.denovo_file or args.db_mgf_file):
             logger.error("Must specify at least --denovo-file or --db-mgf-file")
             sys.exit(1)
-        
+
         if args.denovo_file and not args.denovo_output:
             logger.error("--denovo-output is required when --denovo-file is specified")
             sys.exit(1)
-        
+
         if args.db_mgf_file and not args.db_output:
             logger.error("--db-output is required when --db-mgf-file is specified")
             sys.exit(1)
-        
+
         # Expand paths (handle ~ for home directory)
         denovo_file = expand_path(args.denovo_file) if args.denovo_file else None
         denovo_output = expand_path(args.denovo_output) if args.denovo_output else None
         db_mgf_file = expand_path(args.db_mgf_file) if args.db_mgf_file else None
         db_output = expand_path(args.db_output) if args.db_output else None
-        
+
         # Validate input files exist
         if denovo_file and not denovo_file.exists():
             logger.error(f"File not found: {denovo_file}")
@@ -491,16 +485,16 @@ Examples:
         if db_mgf_file and not db_mgf_file.exists():
             logger.error(f"File not found: {db_mgf_file}")
             sys.exit(1)
-        
+
         run_preprocessing(
             denovo_file=denovo_file,
             denovo_output=denovo_output,
             db_mgf_file=db_mgf_file,
             db_output=db_output,
         )
-    
+
     logger.info("NovoBoard analysis complete!")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -32,10 +32,10 @@ UNIMOD_TO_NOVOBOARD = {
 
 def add_score_column(data: pl.DataFrame) -> pl.DataFrame:
     """Create a score column from InstaNovo log-probability (0-100 scale).
-    
+
     Args:
         data: DataFrame with 'log_probs' column
-        
+
     Returns:
         DataFrame with 'ALC (%)' column added
     """
@@ -47,10 +47,10 @@ def add_score_column(data: pl.DataFrame) -> pl.DataFrame:
 
 def convert_unimod_to_novoboard(peptide: str) -> str:
     """Convert InstaNovo UNIMOD notation to NovoBoard format.
-    
+
     Args:
         peptide: Peptide sequence with UNIMOD modifications
-        
+
     Returns:
         Peptide sequence with NovoBoard-style modifications
     """
@@ -65,44 +65,46 @@ def convert_unimod_to_novoboard(peptide: str) -> str:
 
 def map_supported_modifications(data: pl.DataFrame) -> pl.DataFrame:
     """Convert UNIMOD notation to NovoBoard format for all peptides.
-    
+
     Args:
         data: DataFrame with 'Peptide' column
-        
+
     Returns:
         DataFrame with converted modification notation
     """
     data = data.with_columns(
-        pl.col("Peptide").map_elements(convert_unimod_to_novoboard, return_dtype=pl.Utf8).alias("Peptide")
+        pl.col("Peptide")
+        .map_elements(convert_unimod_to_novoboard, return_dtype=pl.Utf8)
+        .alias("Peptide")
     )
     return data
 
 
 def filter_unsupported_modifications(data: pl.DataFrame) -> pl.DataFrame:
     """Filter out peptides with unsupported UNIMOD modifications.
-    
+
     Args:
         data: DataFrame with 'Peptide' column
-        
+
     Returns:
         DataFrame with unsupported modifications removed
     """
     initial_count = len(data)
-    data = data.filter(
-        ~pl.col("Peptide").str.contains(r"\[UNIMOD:\d+\]")
-    )
+    data = data.filter(~pl.col("Peptide").str.contains(r"\[UNIMOD:\d+\]"))
     filtered_count = initial_count - len(data)
     if filtered_count > 0:
-        logger.warning(f"Filtered {filtered_count} peptides with unsupported modifications")
+        logger.warning(
+            f"Filtered {filtered_count} peptides with unsupported modifications"
+        )
     return data
 
 
 def create_de_novo_results_df(data_path: Path) -> pl.DataFrame:
     """Create de novo results DataFrame from InstaNovo predictions CSV.
-    
+
     Args:
         data_path: Path to InstaNovo predictions CSV file
-        
+
     Returns:
         DataFrame with NovoBoard-compatible columns:
         - Source File: The source file name
@@ -123,10 +125,10 @@ def create_de_novo_results_df(data_path: Path) -> pl.DataFrame:
 
 def read_mgf(data_path: Path) -> pl.DataFrame:
     """Read labeled MGF file and extract scan numbers and peptide sequences.
-    
+
     Args:
         data_path: Path to labeled MGF file
-        
+
     Returns:
         DataFrame with 'Scan' and 'Peptide' columns
     """
@@ -140,33 +142,31 @@ def read_mgf(data_path: Path) -> pl.DataFrame:
     for i, spectrum in enumerate(spectra):
         data["Scan"].append(i)
         data["Peptide"].append(spectrum.metadata.get("peptide_sequence", ""))
-    
+
     return pl.DataFrame(data)
 
 
 def add_source_file_column(data: pl.DataFrame, data_path: Path) -> pl.DataFrame:
     """Add source file column to DataFrame.
-    
+
     Args:
         data: Input DataFrame
         data_path: Path to use for source file name (stem is extracted)
-        
+
     Returns:
         DataFrame with 'Source File' column added
     """
     exp_name = data_path.stem
-    data = data.with_columns(
-        pl.lit(exp_name).alias("Source File").cast(pl.Utf8)
-    )
+    data = data.with_columns(pl.lit(exp_name).alias("Source File").cast(pl.Utf8))
     return data
 
 
 def create_database_results_df(data_path: Path) -> pl.DataFrame:
     """Create database results DataFrame from labeled MGF file.
-    
+
     Args:
         data_path: Path to labeled MGF file with peptide annotations
-        
+
     Returns:
         DataFrame with NovoBoard-compatible columns:
         - Source File: The source file name
@@ -188,7 +188,7 @@ def run_preprocessing(
     db_output: Path | None = None,
 ) -> None:
     """Run preprocessing to convert InstaNovo output to NovoBoard format.
-    
+
     Args:
         denovo_file: Path to InstaNovo predictions CSV
         denovo_output: Path for de novo results output CSV
@@ -197,9 +197,9 @@ def run_preprocessing(
     """
     if denovo_file and denovo_output:
         de_novo_results = create_de_novo_results_df(denovo_file)
-        de_novo_results = de_novo_results.select([
-            "Source File", "Scan", "Peptide", "ALC (%)", "local confidence (%)"
-        ])
+        de_novo_results = de_novo_results.select(
+            ["Source File", "Scan", "Peptide", "ALC (%)", "local confidence (%)"]
+        )
         denovo_output.parent.mkdir(parents=True, exist_ok=True)
         de_novo_results.write_csv(denovo_output)
         logger.info(f"Wrote de novo results to: {denovo_output}")
