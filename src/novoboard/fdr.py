@@ -402,6 +402,57 @@ def validate_FDR(
     cumsum_correct = np.cumsum(np.array(df["is_threshold_ions_matched"].astype(int)))
     cumsum_false = cumsum - cumsum_correct
     true_fdr_T = cumsum_false / cumsum
+
+    # Calculate q-values (running minimum FDR from lowest to highest score)
+    # Q-value represents the minimum FDR at which this PSM would be accepted.
+    # Unlike FDR which can fluctuate, q-values are monotonically decreasing
+    # as confidence increases, making them more suitable for thresholding.
+    def compute_q_values(fdr_array: np.ndarray) -> list[float]:
+        """Compute q-values using Winnow's algorithm (running minimum FDR)."""
+        q_values: list[float] = []
+        fdr_min = float("inf")
+        # Walk backwards (lowest confidence to highest)
+        for current_fdr in reversed(fdr_array):
+            if current_fdr > fdr_min:
+                q_values.append(fdr_min)
+            else:
+                q_values.append(current_fdr)
+                fdr_min = current_fdr
+        q_values.reverse()  # Restore original order (high to low confidence)
+        return q_values
+
+    # Compute q-values for each metric
+    df["q_value_peptide"] = compute_q_values(true_fdr)
+    df["q_value_ion100"] = compute_q_values(true_fdr_I)
+    df["q_value_ion_threshold"] = compute_q_values(true_fdr_T)
+
+    # Set selected q-value based on tp_metric
+    if tp_metric == "peptide":
+        df["q_value"] = df["q_value_peptide"]
+    elif tp_metric == "ion-100":
+        df["q_value"] = df["q_value_ion100"]
+    else:  # ion-threshold
+        df["q_value"] = df["q_value_ion_threshold"]
+
+    logger.info(f"  Computed q-values for {len(df):,d} PSMs")
+
+    # Save q-values to CSV
+    qvalue_file = str(output_dir / f"{target_stem}_fdr_{decoy_stem}_qvalues.csv")
+    qvalue_cols = [
+        "Peptide",
+        "estimated_fdr",
+        "is_correct_selected",
+        "q_value",
+        "q_value_peptide",
+        "q_value_ion100",
+        "q_value_ion_threshold",
+        "tp_metric",
+    ]
+    # Only include columns that exist in df
+    qvalue_cols = [c for c in qvalue_cols if c in df.columns]
+    df[qvalue_cols].to_csv(qvalue_file)
+    logger.info(f"Saved q-values to: {qvalue_file}")
+
     # Monotonic filtering: remove "bumps" where FDR increases as threshold rises
     #
     # Theoretically, FDR should monotonically decrease as we raise the score threshold

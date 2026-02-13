@@ -139,8 +139,13 @@ novoboard fdr \
   - `is_threshold_ions_matched`: Threshold fragment ion match
   - `is_correct_selected`: Selected metric result (based on `--tp-metric`)
   - `tp_metric`: The metric used for this analysis
+- `{target_stem}_fdr_{decoy_stem}_qvalues.csv`: Per-PSM q-values (monotonic minimum FDR):
+  - `q_value`: Q-value for selected metric
+  - `q_value_peptide`: Q-value using peptide-level matching
+  - `q_value_ion100`: Q-value using 100% ion matching
+  - `q_value_ion_threshold`: Q-value using threshold ion matching
 
-Example: `target.csv` + `decoy_0.30.csv` → `target_fdr_decoy_0.30.csv`, `target_fdr_decoy_0.30_accuracy.csv`
+Example: `target.csv` + `decoy_0.30.csv` → `target_fdr_decoy_0.30.csv`, `target_fdr_decoy_0.30_accuracy.csv`, `target_fdr_decoy_0.30_qvalues.csv`
 
 **Labels:**
 
