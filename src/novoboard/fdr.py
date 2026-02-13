@@ -482,7 +482,7 @@ def validate_FDR(
         # Return all data points without filtering
         # Reverse to match monotonic branch order (low score → high score)
         # so plotting can reverse back to high score → low score consistently
-        estimated_fdr_out = tuple(reversed(df["estimated_fdr"]))
+        estimated_fdr_out = tuple(df["estimated_fdr"].iloc[::-1])
         cumsum_out = tuple(reversed(cumsum))
         true_fdr_out = tuple(reversed(true_fdr))
         true_fdr_I_out = tuple(reversed(true_fdr_I))
