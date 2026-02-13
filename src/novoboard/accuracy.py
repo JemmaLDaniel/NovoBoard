@@ -544,6 +544,7 @@ class WorkerTest:
             "max_predicted_score",
             "scan_list_middle",
             "scan_list_original",
+            "is_target",
         ]
         header_row = "\t".join(header_list)
         print(header_row, file=denovo_only_handle, end="\n")
@@ -693,6 +694,7 @@ class WorkerTest:
                     predicted_score_max,
                     feature_scan_list_middle,
                     feature_scan_list_original,
+                    str(predicted.get("is_target", "")),
                 ]
                 print_row = "\t".join(print_list)
                 print(print_row, file=denovo_only_handle, end="\n")
@@ -767,6 +769,8 @@ class WorkerTest:
                 predicted["sequence"] = [predicted["sequence"]]
                 predicted["score"] = [float(row[self.col_score])]
                 predicted["aa_score"] = [row[self.col_aa_score]]
+                # Read is_target if present (from FDR command's combined target-decoy file)
+                predicted["is_target"] = row.get("is_target", "")
                 predicted_list.append(predicted)
 
         self.predicted_list = predicted_list

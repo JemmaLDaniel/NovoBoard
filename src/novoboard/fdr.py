@@ -400,6 +400,12 @@ def validate_FDR(
     cumsum_false = cumsum - cumsum_correct
     true_fdr_T = cumsum_false / cumsum
 
+    # Store true FDR values as per-PSM columns
+    ion_threshold_pct = int(T_pct * 100)
+    df["true_fdr_peptide"] = true_fdr
+    df["true_fdr_ion100"] = true_fdr_I
+    df[f"true_fdr_ion{ion_threshold_pct}"] = true_fdr_T
+
     # Calculate q-values (running minimum FDR from lowest to highest score)
     # Q-value represents the minimum FDR at which this PSM would be accepted.
     # Unlike FDR which can fluctuate, q-values are monotonically decreasing
@@ -418,23 +424,28 @@ def validate_FDR(
         q_values.reverse()  # Restore original order (high to low confidence)
         return q_values
 
-    # Compute q-values for each metric
-    # Column names include percentage for ion-based metrics
-    ion_threshold_pct = int(T_pct * 100)
-    df["q_value_peptide"] = compute_q_values(true_fdr)
-    df["q_value_ion100"] = compute_q_values(true_fdr_I)
-    df[f"q_value_ion{ion_threshold_pct}"] = compute_q_values(true_fdr_T)
+    # Compute q-values for each metric (monotonic minimum FDR)
+    df["true_q_value_peptide"] = compute_q_values(true_fdr)
+    df["true_q_value_ion100"] = compute_q_values(true_fdr_I)
+    df[f"true_q_value_ion{ion_threshold_pct}"] = compute_q_values(true_fdr_T)
+
+    # Compute estimated q-value from estimated FDR (doesn't require ground truth)
+    df["estimated_q_value"] = compute_q_values(np.array(df["estimated_fdr"]))
 
     logger.info(f"  Computed q-values for {len(df):,d} PSMs")
 
-    # Save q-values to CSV
-    qvalue_file = str(output_dir / f"{target_stem}_fdr_{decoy_stem}_qvalues.csv")
+    # Save FDR and q-values to CSV
+    qvalue_file = str(output_dir / f"{target_stem}_fdr_{decoy_stem}_fdr_qvalues.csv")
     qvalue_cols = [
         "Peptide",
         "estimated_fdr",
-        "q_value_peptide",
-        "q_value_ion100",
-        f"q_value_ion{ion_threshold_pct}",
+        "estimated_q_value",
+        "true_fdr_peptide",
+        "true_fdr_ion100",
+        f"true_fdr_ion{ion_threshold_pct}",
+        "true_q_value_peptide",
+        "true_q_value_ion100",
+        f"true_q_value_ion{ion_threshold_pct}",
         "tp_metric",
     ]
     # Only include columns that exist in df

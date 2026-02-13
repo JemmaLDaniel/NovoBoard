@@ -58,12 +58,22 @@ novoboard accuracy \
 
 **Output:**
 - Files are saved in the same directory as the de novo file
-- `{denovo_stem}_accuracy.csv`: Per-peptide accuracy metrics
-- `{denovo_stem}_denovo_only.csv`: Peptides found only in de novo results
+- `{denovo_stem}_accuracy.csv`: Per-peptide accuracy metrics for database-annotated PSMs
+- `{denovo_stem}_denovo_only.csv`: Peptides without database match (can include both decoy and novel target spectra)
 - `{denovo_stem}_scan2fea.csv`: Scan to feature mapping
 - `{denovo_stem}_multifea.csv`: Multi-feature entries
 
 Example: `results/denovo.csv` → `results/denovo_accuracy.csv`, etc.
+
+**Accuracy Metrics:**
+
+NovoBoard computes accuracy at three levels of stringency (from lenient to strict):
+
+| Level | Description | Output Columns |
+|-------|-------------|----------------|
+| **Fragment Ion** (most lenient) | Compares theoretical fragment ions (b/y ions) of predicted vs. target peptide against observed spectrum peaks. Gives credit for mass-equivalent substitutions (e.g., I↔L) that produce identical fragmentation. | `target_ion_count`, `matched_ion_count`, `unmatched_target_ions_mz` |
+| **Amino Acid** (intermediate) | Uses the Novor matching algorithm which aligns cumulative prefix masses rather than characters, handling insertions/deletions gracefully. | `matched_amino_acid_count`, `amino_acid_match_pattern`, `predicted_sequence_length`, `target_sequence_length` |
+| **Peptide** (strictest) | All amino acids must match via Novor algorithm (mass-based, so I↔L are equivalent). | Derived from `matched_amino_acid_count == target_sequence_length` |
 
 ### 2. Generate Decoy Spectra
 
@@ -128,22 +138,44 @@ novoboard fdr \
   - `ion-100`: 100% fragment ion matching
   - `ion-threshold`: ≥ threshold% ion matching (default, most lenient)
 
+**True Positive Metrics:**
+
+True FDR and q-values are computed for all three true positive definitions:
+
+| Metric | True Positive Definition | Stringency |
+|--------|--------------------------|------------|
+| `peptide` | All amino acids match via Novor algorithm (Winnow-comparable) | Strictest |
+| `ion-100` | 100% of theoretical fragment ions matched | Intermediate |
+| `ion-threshold` | ≥N% of fragment ions matched (default 90%) | Most lenient |
+
+The `--tp-metric` option controls which ground-truth metric is displayed in the validation plot; all three are always computed internally.
+
+**Note:** The `fdr` command internally calls the same accuracy calculation as the `accuracy` command, computing fragment ion, amino acid, and peptide-level metrics for each PSM. Therefore, the `fdr` command outputs all four `accuracy` files, plus files containing FDR metrics.
+
 **Output:**
 - `{output-file}`: FDR validation plot (PNG) with two panels:
   - FDR Calibration (Estimated vs True FDR)
   - PSMs vs FDR
-- `{target_stem}_fdr_{decoy_stem}.csv`: Combined target-decoy results with estimated FDR
-- `{target_stem}_fdr_{decoy_stem}_accuracy.csv`: Per-PSM accuracy metrics including:
+- `{target_stem}_fdr_{decoy_stem}.csv`: Combined target-decoy results for *all* PSMs with estimated FDR
+  - `estimated_fdr`: Estimated FDR from target-decoy competition
+  - `is_target`: `True` for target and `False` for decoy
+- `{target_stem}_fdr_{decoy_stem}_accuracy.csv`: Per-PSM accuracy metrics for database-annotated PSMs (targets only, since decoys have no database match):
   - `is_exact_sequence_match`: Peptide-level match (Novor algorithm)
   - `is_all_ions_matched`: 100% fragment ion match
   - `is_threshold_ions_matched`: Threshold fragment ion match
-  - `tp_metric`: The metric used for this analysis
-- `{target_stem}_fdr_{decoy_stem}_qvalues.csv`: Per-PSM q-values (monotonic minimum FDR):
-  - `q_value_peptide`: Q-value using peptide-level matching
-  - `q_value_ion100`: Q-value using 100% ion matching
-  - `q_value_ion{N}`: Q-value using threshold ion matching (e.g., `q_value_ion90` for 90%)
-
-Example: `target.csv` + `decoy_0.30.csv` → `target_fdr_decoy_0.30.csv`, `target_fdr_decoy_0.30_accuracy.csv`, `target_fdr_decoy_0.30_qvalues.csv`
+- `{target_stem}_fdr_{decoy_stem}_denovo_only.csv`: PSMs without database match (includes decoys)
+  - `is_target`: `True` for target, `False` for decoy
+- `{target_stem}_fdr_{decoy_stem}_scan2fea.csv`: Scan to feature mapping
+- `{target_stem}_fdr_{decoy_stem}_multifea.csv`: Multi-feature entries
+- `{target_stem}_fdr_{decoy_stem}_fdr_qvalues.csv`: Per-PSM FDR and q-values and ground truth metrics for only database-annotated target PSMs:
+  - `estimated_fdr`: Estimated FDR from target-decoy competition
+  - `estimated_q_value`: Estimated q-value (monotonic minimum of estimated FDR)
+  - `true_fdr_peptide`: True FDR using peptide-level matching
+  - `true_fdr_ion100`: True FDR using 100% ion matching
+  - `true_fdr_ion{N}`: True FDR using threshold ion matching (e.g., `true_fdr_ion90`)
+  - `true_q_value_peptide`: True q-value using peptide-level matching
+  - `true_q_value_ion100`: True q-value using 100% ion matching
+  - `true_q_value_ion{N}`: True q-value using threshold ion matching (e.g., `true_q_value_ion90`)
 
 **Labels:**
 
