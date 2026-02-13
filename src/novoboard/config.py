@@ -124,3 +124,8 @@ AVG_AA_MASS = 122.8652943
 
 # Default sampling rate for decoy generation
 DEFAULT_SAMPLING_RATE = 0.5
+
+# Number of top-ranked predictions to drop for FDR stability
+# Dropping the first few predictions reduces variance in FDR estimation
+# caused by small sample sizes at the highest confidence levels
+FDR_DROP_COUNT = 10

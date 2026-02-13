@@ -20,6 +20,7 @@ novoboard fdr \
     --output-file fig/helaqc_fdr_validation.png \
     --score-column "ALC (%)" \
     --aa-score-column "local confidence (%)" \
-    --ion-threshold 0.90 \
     --fdr-max 0.1 \
     --dpi 300 \
+    --tp-metric peptide \
+    --no-monotonic

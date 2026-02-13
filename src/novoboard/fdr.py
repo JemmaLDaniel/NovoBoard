@@ -49,6 +49,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from novoboard import config
 from novoboard.accuracy import WorkerTest
 
 
@@ -87,6 +89,22 @@ class FDRValidationResult:
     true_fdr_T: tuple[float, ...]
     estimated_fdr_full: tuple[float, ...]
     cumsum_full: tuple[int, ...]
+
+    def get_true_fdr(self, metric: str) -> tuple[float, ...]:
+        """Get the true FDR tuple for the specified metric.
+
+        Args:
+            metric: One of "peptide", "ion-100", or "ion-threshold"
+
+        Returns:
+            The corresponding true FDR tuple
+        """
+        if metric == "peptide":
+            return self.true_fdr
+        elif metric == "ion-100":
+            return self.true_fdr_I
+        else:  # ion-threshold
+            return self.true_fdr_T
 
 
 logger = logging.getLogger(__name__)
@@ -221,6 +239,7 @@ def validate_FDR(
     col_score: str,
     col_aa_score: str,
     monotonic: bool = True,
+    tp_metric: str = "ion-threshold",
 ) -> FDRValidationResult:
     """Validate estimated FDR against ground truth from database search.
 
@@ -262,6 +281,7 @@ def validate_FDR(
         col_score: Score column name for accuracy calculation
         col_aa_score: AA score column name
         monotonic: If True, filter to monotonically decreasing FDR (default: True)
+        tp_metric: True positive metric - "peptide", "ion-100", or "ion-threshold"
 
     Returns:
         FDRValidationResult with estimated and true FDR curves for plotting
@@ -325,6 +345,20 @@ def validate_FDR(
     denovo_df["is_threshold_ions_matched"] = (
         accuracy_df["matched_ion_count"] >= accuracy_df["target_ion_count"] * T_pct
     )
+
+    # Add selected metric column based on tp_metric parameter
+    if tp_metric == "peptide":
+        denovo_df["is_correct_selected"] = denovo_df["is_exact_sequence_match"]
+        metric_description = "peptide-level (Novor algorithm)"
+    elif tp_metric == "ion-100":
+        denovo_df["is_correct_selected"] = denovo_df["is_all_ions_matched"]
+        metric_description = "ion-level 100%"
+    else:  # ion-threshold
+        denovo_df["is_correct_selected"] = denovo_df["is_threshold_ions_matched"]
+        metric_description = f"ion-level threshold ({T_pct:.0%})"
+    denovo_df["tp_metric"] = tp_metric
+
+    logger.info(f"Using true positive metric: {metric_description}")
     logger.info("Validating FDR against database ground truth...")
     has_accuracy = ~denovo_df["matched_amino_acid_count"].isna()
     mask = has_accuracy & denovo_df["is_target"]
@@ -340,6 +374,15 @@ def validate_FDR(
     # compare against. Spectra without database matches cannot contribute to true FDR
     # calculation since we don't know their ground truth.
     df = denovo_df[has_accuracy & denovo_df["is_target"]].copy()
+
+    # Drop the first N predictions for FDR stability
+    # The highest-confidence predictions have high variance in FDR estimation due to
+    # small sample sizes. Dropping them produces more stable FDR curves.
+    drop_count = config.FDR_DROP_COUNT
+    if drop_count > 0 and len(df) > drop_count:
+        df = df.iloc[drop_count:]
+        logger.info(f"  Dropped first {drop_count} predictions for FDR stability")
+
     cumsum = range(1, len(df) + 1)
 
     # Peptide-level true FDR: prediction is correct only if ALL amino acids match
@@ -397,11 +440,13 @@ def validate_FDR(
             true_fdr_T_out = ()
     else:
         # Return all data points without filtering
-        estimated_fdr_out = tuple(df["estimated_fdr"])
-        cumsum_out = tuple(cumsum)
-        true_fdr_out = tuple(true_fdr)
-        true_fdr_I_out = tuple(true_fdr_I)
-        true_fdr_T_out = tuple(true_fdr_T)
+        # Reverse to match monotonic branch order (low score → high score)
+        # so plotting can reverse back to high score → low score consistently
+        estimated_fdr_out = tuple(reversed(df["estimated_fdr"]))
+        cumsum_out = tuple(reversed(cumsum))
+        true_fdr_out = tuple(reversed(true_fdr))
+        true_fdr_I_out = tuple(reversed(true_fdr_I))
+        true_fdr_T_out = tuple(reversed(true_fdr_T))
 
     # calculate estimated FDR and #PSMs on all target spectra
     df_target = denovo_df[denovo_df["is_target"]].copy()

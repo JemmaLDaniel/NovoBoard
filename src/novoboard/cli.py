@@ -120,6 +120,7 @@ def run_fdr_validation(
     fdr_max: float = 0.05,
     dpi: int = 150,
     monotonic: bool = True,
+    tp_metric: str = "ion-threshold",
 ) -> None:
     """Validate FDR estimation using target-decoy approach.
 
@@ -136,6 +137,7 @@ def run_fdr_validation(
         fdr_max: Maximum value for FDR axis in plot (default: 0.05)
         dpi: Resolution in dots per inch (default: 150)
         monotonic: If True, filter to monotonically decreasing FDR (default: True)
+        tp_metric: True positive metric - "peptide", "ion-100", or "ion-threshold"
     """
     logger.info(f"Target file: {target_file}")
     logger.info(f"Decoy files: {len(decoy_files)}")
@@ -156,6 +158,7 @@ def run_fdr_validation(
             col_score,
             col_aa_score,
             monotonic=monotonic,
+            tp_metric=tp_metric,
         )
         for decoy_file in decoy_files
     ]
@@ -165,7 +168,13 @@ def run_fdr_validation(
         labels = [extract_decoy_label(str(decoy_file)) for decoy_file in decoy_files]
     samples = range(1, len(decoy_files) + 1)
     plot_fdr_validation(
-        results_list, samples, str(output_file), labels=labels, fdr_max=fdr_max, dpi=dpi
+        results_list,
+        samples,
+        str(output_file),
+        labels=labels,
+        fdr_max=fdr_max,
+        dpi=dpi,
+        tp_metric=tp_metric,
     )
 
 
@@ -391,6 +400,16 @@ Examples:
         action="store_true",
         help="Disable monotonic filtering to show all FDR data points (may look bumpy)",
     )
+    fdr_parser.add_argument(
+        "--tp-metric",
+        type=str,
+        choices=["peptide", "ion-100", "ion-threshold"],
+        default="ion-threshold",
+        help="""True positive metric for FDR calculation:
+      peptide: Exact peptide match via Novor algorithm (Winnow-comparable)
+      ion-100: 100%% fragment ion matching
+      ion-threshold: >= threshold%% ion matching (default)""",
+    )
 
     # =========================================================================
     # PREPROCESS command
@@ -483,6 +502,7 @@ Examples:
             fdr_max=args.fdr_max,
             dpi=args.dpi,
             monotonic=not args.no_monotonic,
+            tp_metric=args.tp_metric,
         )
 
     elif args.command == "preprocess":
