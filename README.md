@@ -123,7 +123,7 @@ novoboard fdr \
 - `--fdr-max`: Maximum FDR value for plot axes, between 0 and 1 (default: 0.05)
 - `--dpi`: Plot resolution in dots per inch (default: 150, use 300 for print quality)
 - `--no-monotonic`: Disable monotonic filtering to show all FDR data points
-- `--tp-metric`: True positive metric for FDR calculation (default: `ion-threshold`)
+- `--tp-metric`: True positive metric used for plotting (default: `ion-threshold`)
   - `peptide`: Exact peptide sequence match via Novor algorithm (strictest, Winnow-comparable)
   - `ion-100`: 100% fragment ion matching
   - `ion-threshold`: ≥ threshold% ion matching (default, most lenient)
@@ -137,13 +137,11 @@ novoboard fdr \
   - `is_exact_sequence_match`: Peptide-level match (Novor algorithm)
   - `is_all_ions_matched`: 100% fragment ion match
   - `is_threshold_ions_matched`: Threshold fragment ion match
-  - `is_correct_selected`: Selected metric result (based on `--tp-metric`)
   - `tp_metric`: The metric used for this analysis
 - `{target_stem}_fdr_{decoy_stem}_qvalues.csv`: Per-PSM q-values (monotonic minimum FDR):
-  - `q_value`: Q-value for selected metric
   - `q_value_peptide`: Q-value using peptide-level matching
   - `q_value_ion100`: Q-value using 100% ion matching
-  - `q_value_ion_threshold`: Q-value using threshold ion matching
+  - `q_value_ion{N}`: Q-value using threshold ion matching (e.g., `q_value_ion90` for 90%)
 
 Example: `target.csv` + `decoy_0.30.csv` → `target_fdr_decoy_0.30.csv`, `target_fdr_decoy_0.30_accuracy.csv`, `target_fdr_decoy_0.30_qvalues.csv`
 

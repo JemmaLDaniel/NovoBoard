@@ -346,15 +346,12 @@ def validate_FDR(
         accuracy_df["matched_ion_count"] >= accuracy_df["target_ion_count"] * T_pct
     )
 
-    # Add selected metric column based on tp_metric parameter
+    # Log selected metric
     if tp_metric == "peptide":
-        denovo_df["is_correct_selected"] = denovo_df["is_exact_sequence_match"]
         metric_description = "peptide-level (Novor algorithm)"
     elif tp_metric == "ion-100":
-        denovo_df["is_correct_selected"] = denovo_df["is_all_ions_matched"]
         metric_description = "ion-level 100%"
     else:  # ion-threshold
-        denovo_df["is_correct_selected"] = denovo_df["is_threshold_ions_matched"]
         metric_description = f"ion-level threshold ({T_pct:.0%})"
     denovo_df["tp_metric"] = tp_metric
 
@@ -422,17 +419,11 @@ def validate_FDR(
         return q_values
 
     # Compute q-values for each metric
+    # Column names include percentage for ion-based metrics
+    ion_threshold_pct = int(T_pct * 100)
     df["q_value_peptide"] = compute_q_values(true_fdr)
     df["q_value_ion100"] = compute_q_values(true_fdr_I)
-    df["q_value_ion_threshold"] = compute_q_values(true_fdr_T)
-
-    # Set selected q-value based on tp_metric
-    if tp_metric == "peptide":
-        df["q_value"] = df["q_value_peptide"]
-    elif tp_metric == "ion-100":
-        df["q_value"] = df["q_value_ion100"]
-    else:  # ion-threshold
-        df["q_value"] = df["q_value_ion_threshold"]
+    df[f"q_value_ion{ion_threshold_pct}"] = compute_q_values(true_fdr_T)
 
     logger.info(f"  Computed q-values for {len(df):,d} PSMs")
 
@@ -441,11 +432,9 @@ def validate_FDR(
     qvalue_cols = [
         "Peptide",
         "estimated_fdr",
-        "is_correct_selected",
-        "q_value",
         "q_value_peptide",
         "q_value_ion100",
-        "q_value_ion_threshold",
+        f"q_value_ion{ion_threshold_pct}",
         "tp_metric",
     ]
     # Only include columns that exist in df
