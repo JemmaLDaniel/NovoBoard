@@ -99,11 +99,19 @@ def filter_unsupported_modifications(data: pl.DataFrame) -> pl.DataFrame:
     return data
 
 
-def create_de_novo_results_df(data_path: Path) -> pl.DataFrame:
+def create_de_novo_results_df(
+    data_path: Path,
+    filter_prefix: str | None = None,
+) -> pl.DataFrame:
     """Create de novo results DataFrame from InstaNovo predictions CSV.
 
     Args:
         data_path: Path to InstaNovo predictions CSV file
+        filter_prefix: Optional prefix to filter spectrum_id column by.
+            InstaNovo spectrum_id format is "{filename}:{index}".
+            If provided, only rows where spectrum_id starts with "{filter_prefix}:"
+            are kept. This allows extracting predictions for a single MGF file
+            from a combined predictions CSV.
 
     Returns:
         DataFrame with NovoBoard-compatible columns:
@@ -115,6 +123,25 @@ def create_de_novo_results_df(data_path: Path) -> pl.DataFrame:
     """
     logger.info(f"Reading de novo predictions from: {data_path}")
     data = pl.read_csv(data_path)
+
+    # Filter by spectrum_id prefix if specified (empty string disables filtering)
+    if filter_prefix is not None and filter_prefix != "":
+        prefix_pattern = f"{filter_prefix}:"
+        initial_count = len(data)
+        data = data.filter(pl.col("spectrum_id").str.starts_with(prefix_pattern))
+        logger.info(
+            f"Filtered to {len(data)} predictions matching prefix '{filter_prefix}' "
+            f"(from {initial_count} total)"
+        )
+
+        if len(data) == 0:
+            logger.warning(f"No predictions found with prefix '{filter_prefix}'")
+            # Show some example spectrum_ids to help debug
+            sample_data = pl.read_csv(data_path).head(5)
+            if "spectrum_id" in sample_data.columns:
+                examples = sample_data["spectrum_id"].to_list()
+                logger.warning(f"Example spectrum_ids in file: {examples}")
+
     data = data.rename(COLUMN_MAPPING)
     preprocessed_data = add_score_column(data)
     preprocessed_data = map_supported_modifications(preprocessed_data)
@@ -186,6 +213,7 @@ def run_preprocessing(
     denovo_output: Path | None = None,
     db_mgf_file: Path | None = None,
     db_output: Path | None = None,
+    filter_prefix: str | None = None,
 ) -> None:
     """Run preprocessing to convert InstaNovo output to NovoBoard format.
 
@@ -194,9 +222,24 @@ def run_preprocessing(
         denovo_output: Path for de novo results output CSV
         db_mgf_file: Path to labeled MGF file (for database results)
         db_output: Path for database results output CSV
+        filter_prefix: Prefix to filter spectrum_id by.
+            If None and db_mgf_file is provided, defaults to the MGF file stem
+            (e.g., "hepg2" for "hepg2.mgf"). This matches InstaNovo's internal
+            experiment naming convention.
+            Set to empty string "" to disable filtering entirely.
     """
+    # Default filter_prefix to MGF file stem if not specified
+    effective_filter = filter_prefix
+    if effective_filter is None and db_mgf_file is not None:
+        effective_filter = db_mgf_file.stem
+        logger.info(
+            f"Auto-detected filter prefix from MGF filename: '{effective_filter}'"
+        )
+
     if denovo_file and denovo_output:
-        de_novo_results = create_de_novo_results_df(denovo_file)
+        de_novo_results = create_de_novo_results_df(
+            denovo_file, filter_prefix=effective_filter
+        )
         de_novo_results = de_novo_results.select(
             ["Source File", "Scan", "Peptide", "ALC (%)", "local confidence (%)"]
         )

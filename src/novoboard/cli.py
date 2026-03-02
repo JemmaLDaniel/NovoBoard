@@ -206,6 +206,10 @@ Examples:
   novoboard preprocess --denovo-file data/preds.csv --denovo-output results/denovo.csv \\
                        --db-mgf-file data/labeled.mgf --db-output results/db.csv
 
+  # Filter predictions from a combined CSV to only one origin
+  novoboard preprocess --denovo-file data/all_preds.csv --denovo-output results/hepg2.csv \\
+                       --filter-prefix hepg2
+
   # Calculate accuracy of de novo predictions
   novoboard accuracy --db-file db_results.csv --denovo-file denovo.csv --spectrum-file spectra.mgf
 
@@ -431,6 +435,17 @@ Examples:
     preprocess_parser.add_argument(
         "--db-output", type=Path, help="Path for database results output CSV"
     )
+    preprocess_parser.add_argument(
+        "--filter-prefix",
+        type=str,
+        default=None,
+        help="""Filter predictions by spectrum_id prefix.
+InstaNovo spectrum_id format is '{filename}:{index}'.
+By default, if --db-mgf-file is provided, the prefix is auto-detected from
+the MGF filename (e.g., 'hepg2' for 'hepg2.mgf').
+Use --filter-prefix "" to disable filtering entirely.
+Example: --filter-prefix hepg2 keeps only spectrum_ids like 'hepg2:0', 'hepg2:1', etc.""",
+    )
 
     # Parse arguments
     args = parser.parse_args()
@@ -532,6 +547,7 @@ Examples:
             denovo_output=args.denovo_output,
             db_mgf_file=args.db_mgf_file,
             db_output=args.db_output,
+            filter_prefix=args.filter_prefix,
         )
 
     logger.info("NovoBoard analysis complete!")
