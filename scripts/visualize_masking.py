@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Visualize original spectra alongside their decoy counterparts from pre-generated files.
+r"""Visualize original spectra alongside their decoy counterparts from pre-generated files.
 
 This script samples spectra from an original MGF file and displays them alongside
 the corresponding spectra from one or more decoy MGF files.
@@ -85,11 +84,14 @@ def parse_mgf_spectra(mgf_path: Path, max_spectra: int | None = None) -> list[di
 def extract_masking_rate_from_filename(filename: str) -> str:
     """Extract masking rate label from decoy filename.
 
+    The number in the filename represents the fraction of peaks KEPT (sampling rate).
+    E.g., decoy_0.10 = 10% kept = 90% masked.
+
     Args:
         filename: Decoy filename like 'gluc_decoy_0.10.mgf'
 
     Returns:
-        Label string like '10% masked' or the filename if pattern not found
+        Label string like '90% masked (10% kept)' or the filename if pattern not found
     """
     # Look for pattern like _decoy_0.XX
     match = re.search(r"_decoy_(\d+\.?\d*)", filename)

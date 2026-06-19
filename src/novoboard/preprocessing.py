@@ -80,6 +80,50 @@ def map_supported_modifications(data: pl.DataFrame) -> pl.DataFrame:
     return data
 
 
+def ensure_experiment_columns(data: pl.DataFrame) -> pl.DataFrame:
+    """Ensure experiment_name and scan_number exist, parsing from spectrum_id if needed.
+
+    InstaNovo spectrum_id format is ``{experiment_name}:{scan_number}``. Some exports
+    only include spectrum_id; others include the columns explicitly.
+
+    Args:
+        data: DataFrame with at least a spectrum_id column, or both experiment columns.
+
+    Returns:
+        DataFrame with experiment_name (str) and scan_number (int) columns.
+    """
+    has_experiment = "experiment_name" in data.columns
+    has_scan = "scan_number" in data.columns
+    if has_experiment and has_scan:
+        return data
+
+    if "spectrum_id" not in data.columns:
+        raise ValueError(
+            "CSV must include spectrum_id, or both experiment_name and scan_number"
+        )
+
+    logger.info("Deriving experiment_name and scan_number from spectrum_id")
+    parsed = (
+        pl.col("spectrum_id")
+        .str.extract_groups(r"^(.+):([^:]+)$")
+        .struct.rename_fields(["experiment_name", "scan_number"])
+    )
+    if has_experiment:
+        data = data.with_columns(
+            pl.col("experiment_name"),
+            parsed.struct.field("scan_number").cast(pl.Int64).alias("scan_number"),
+        )
+    elif has_scan:
+        data = data.with_columns(
+            parsed.struct.field("experiment_name").alias("experiment_name"),
+            pl.col("scan_number"),
+        )
+    else:
+        data = data.with_columns(parsed.alias("_parsed")).unnest("_parsed")
+
+    return data.with_columns(pl.col("scan_number").cast(pl.Int64))
+
+
 def filter_unsupported_modifications(data: pl.DataFrame) -> pl.DataFrame:
     """Filter out peptides with unsupported UNIMOD modifications.
 
@@ -142,6 +186,7 @@ def create_de_novo_results_df(
                 examples = sample_data["spectrum_id"].to_list()
                 logger.warning(f"Example spectrum_ids in file: {examples}")
 
+    data = ensure_experiment_columns(data)
     data = data.rename(COLUMN_MAPPING)
     preprocessed_data = add_score_column(data)
     preprocessed_data = map_supported_modifications(preprocessed_data)
@@ -240,9 +285,16 @@ def run_preprocessing(
         de_novo_results = create_de_novo_results_df(
             denovo_file, filter_prefix=effective_filter
         )
-        de_novo_results = de_novo_results.select(
-            ["Source File", "Scan", "Peptide", "ALC (%)", "local confidence (%)"]
-        )
+        output_cols = [
+            "Source File",
+            "Scan",
+            "Peptide",
+            "ALC (%)",
+            "local confidence (%)",
+        ]
+        if "spectrum_id" in de_novo_results.columns:
+            output_cols.insert(0, "spectrum_id")
+        de_novo_results = de_novo_results.select(output_cols)
         denovo_output.parent.mkdir(parents=True, exist_ok=True)
         de_novo_results.write_csv(denovo_output)
         logger.info(f"Wrote de novo results to: {denovo_output}")

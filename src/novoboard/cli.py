@@ -11,7 +11,7 @@ from typing import Sequence
 from novoboard import config
 from novoboard.accuracy import WorkerTest
 from novoboard.decoy import generate_decoy_mgf
-from novoboard.fdr import validate_FDR
+from novoboard.fdr import estimate_FDR, validate_FDR
 from novoboard.plotting import plot_fdr_validation
 from novoboard.preprocessing import run_preprocessing
 
@@ -90,7 +90,12 @@ def extract_decoy_label(filename: str) -> str:
     """Extract decoy percentage label from filename.
 
     Looks for patterns like 'decoy_0.10' or 'decoy_10' in the filename
-    and converts to a human-readable percentage label like '10%'.
+    and converts to a human-readable percentage label.
+
+    The number in the filename represents the fraction of peaks KEPT (sampling rate).
+    E.g., decoy_0.10 = 10% kept = 90% masked.
+
+    Returns a label showing the MASKED percentage for clarity (e.g., "90% Masked").
     Falls back to the filename stem if no pattern is found.
     """
     import re
@@ -99,11 +104,14 @@ def extract_decoy_label(filename: str) -> str:
     match = re.search(r"decoy_(\d+\.?\d*)", filename, re.IGNORECASE)
     if match:
         value = float(match.group(1))
-        # If value is less than 1, assume it's a fraction (0.10 = 10%)
+        # If value is less than 1, assume it's a fraction (0.10 = 10% kept)
         if value < 1:
-            return f"{int(value * 100)}%"
+            kept_pct = int(value * 100)
         else:
-            return f"{int(value)}%"
+            kept_pct = int(value)
+        # Return the MASKED percentage for clarity
+        masked_pct = 100 - kept_pct
+        return f"{masked_pct}% Masked"
     return Path(filename).stem
 
 
@@ -178,6 +186,50 @@ def run_fdr_validation(
     )
 
 
+def run_fdr_estimation(
+    target_file: Path,
+    decoy_files: Sequence[Path],
+    col_score: str,
+    output_file: Path | None = None,
+    fdr_max: float = 0.05,
+) -> None:
+    """Estimate per-PSM FDR and q-values without database validation.
+
+    Args:
+        target_file: Path to target de novo results CSV
+        decoy_files: Paths to decoy de novo results CSV(s)
+        col_score: Column name for peptide score
+        output_file: Path for output CSV (if None, auto-derived per decoy file)
+        fdr_max: Maximum FDR threshold for summary reporting
+    """
+    logger.info(f"Target file: {target_file}")
+    logger.info(f"Decoy files: {len(decoy_files)}")
+    logger.info("Mode: FDR estimation (no database validation)")
+
+    fdr_thresholds = [0.01, 0.05, fdr_max]
+    # Deduplicate and sort
+    fdr_thresholds = sorted(set(fdr_thresholds))
+
+    for decoy_file in decoy_files:
+        label = extract_decoy_label(str(decoy_file))
+        logger.info(f"\n--- Decoy: {label} ({decoy_file.name}) ---")
+
+        # Determine per-decoy output file
+        if output_file is not None and len(decoy_files) == 1:
+            out = str(output_file)
+        else:
+            out = None  # auto-derive from filenames
+
+        result = estimate_FDR(
+            str(target_file),
+            str(decoy_file),
+            col_score,
+            output_file=out,
+            fdr_thresholds=fdr_thresholds,
+        )
+        logger.info(f"  Output: {result.output_file}")
+
+
 def setup_logging(verbose: bool = False) -> None:
     """Configure logging for CLI usage.
 
@@ -216,7 +268,10 @@ Examples:
   # Generate decoy spectra
   novoboard decoy --spectrum-file spectra.mgf --sampling-rate 0.5
 
-  # Validate FDR estimation
+  # Estimate FDR and q-values (de novo, no database)
+  novoboard fdr --target-file target.csv --decoy-files decoy.csv
+
+  # Validate FDR against database search ground truth
   novoboard fdr --target-file target.csv --decoy-files decoy1.csv decoy2.csv \\
                 --db-file db_results.csv --spectrum-file spectra.mgf
 
@@ -324,7 +379,8 @@ Examples:
     # FDR command
     # =========================================================================
     fdr_parser = subparsers.add_parser(
-        "fdr", help="Validate FDR estimation using target-decoy approach"
+        "fdr",
+        help="Estimate FDR/q-values, or validate against database ground truth",
     )
     fdr_parser.add_argument(
         "--target-file",
@@ -342,11 +398,15 @@ Examples:
     fdr_parser.add_argument(
         "--db-file",
         type=Path,
-        required=True,
-        help="Path to database search results CSV (ground truth)",
+        default=None,
+        help="Path to database search results CSV (ground truth). "
+        "If omitted, runs estimation-only mode (no validation).",
     )
     fdr_parser.add_argument(
-        "--spectrum-file", type=Path, required=True, help="Path to MGF spectrum file"
+        "--spectrum-file",
+        type=Path,
+        default=None,
+        help="Path to MGF spectrum file (required when --db-file is provided)",
     )
     fdr_parser.add_argument(
         "--output-file",
@@ -492,33 +552,56 @@ Example: --filter-prefix hepg2 keeps only spectrum_ids like 'hepg2:0', 'hepg2:1'
         )
 
     elif args.command == "fdr":
-        # Validate files exist
-        files_to_check = [args.target_file, args.db_file, args.spectrum_file] + list(
-            args.decoy_files
-        )
-        for f in files_to_check:
-            if not f.exists():
-                logger.error(f"File not found: {f}")
+        validation_mode = args.db_file is not None
+
+        if validation_mode:
+            if args.spectrum_file is None:
+                logger.error("--spectrum-file is required when --db-file is provided")
                 sys.exit(1)
 
-        # Create output directory if needed
-        args.output_file.parent.mkdir(parents=True, exist_ok=True)
+            files_to_check = [
+                args.target_file,
+                args.db_file,
+                args.spectrum_file,
+            ] + list(args.decoy_files)
+            for f in files_to_check:
+                if not f.exists():
+                    logger.error(f"File not found: {f}")
+                    sys.exit(1)
 
-        run_fdr_validation(
-            args.target_file,
-            args.decoy_files,
-            args.db_file,
-            args.spectrum_file,
-            args.output_file,
-            args.score_column,
-            args.aa_score_column,
-            args.ion_threshold,
-            labels=getattr(args, "labels", None),
-            fdr_max=args.fdr_max,
-            dpi=args.dpi,
-            monotonic=not args.no_monotonic,
-            tp_metric=args.tp_metric,
-        )
+            args.output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            run_fdr_validation(
+                args.target_file,
+                args.decoy_files,
+                args.db_file,
+                args.spectrum_file,
+                args.output_file,
+                args.score_column,
+                args.aa_score_column,
+                args.ion_threshold,
+                labels=getattr(args, "labels", None),
+                fdr_max=args.fdr_max,
+                dpi=args.dpi,
+                monotonic=not args.no_monotonic,
+                tp_metric=args.tp_metric,
+            )
+        else:
+            files_to_check = [args.target_file] + list(args.decoy_files)
+            for f in files_to_check:
+                if not f.exists():
+                    logger.error(f"File not found: {f}")
+                    sys.exit(1)
+
+            run_fdr_estimation(
+                args.target_file,
+                args.decoy_files,
+                args.score_column,
+                output_file=args.output_file
+                if str(args.output_file) != "fdr_validation.png"
+                else None,
+                fdr_max=args.fdr_max,
+            )
 
     elif args.command == "preprocess":
         # Validate at least one input/output pair is provided

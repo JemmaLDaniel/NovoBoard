@@ -803,11 +803,22 @@ class WorkerTest:
         self.target_dict = target_dict
 
     def _get_spectra(self) -> None:
-        """Read spectra from MGF file."""
+        """Read spectra from MGF file.
+
+        Feature ID Construction
+        -----------------------
+        feature_id = "{source_file}||{scan}" where:
+        - source_file: MGF filename stem (e.g., "gluc" from "gluc.mgf")
+        - scan: 0-based spectrum index in the file (NOT the SCANS= field value)
+
+        This matches InstaNovo's output format where:
+        - experiment_name = MGF filename stem
+        - scan_number = 0-based position of spectrum in the MGF file
+        """
         logger.info("Loading spectra from MGF file...")
 
-        # Extract default source file name from spectrum file path
-        default_source_file = Path(self.spectrum_file).stem
+        # Use MGF filename stem as source_file (matches InstaNovo's experiment_name)
+        source_file = Path(self.spectrum_file).stem
         spectrum_index = 0
 
         with open(self.spectrum_file, "r") as f_in:
@@ -818,23 +829,12 @@ class WorkerTest:
                 if line == "\n":  # empty line
                     continue
                 peak_list: list[tuple[float, float]] = []
-                # Initialize with defaults for each spectrum
-                source_file = default_source_file
+                # Use 0-based spectrum index as scan (matches InstaNovo's scan_number)
+                # Ignore SCANS= field - it contains original scan numbers that don't match
                 scan = str(spectrum_index)
                 while "END IONS" not in line:
-                    # parse header lines
+                    # parse header lines - skip them, we only need peak data
                     if "BEGIN IONS" in line or "=" in line:
-                        if "TITLE=" in line:
-                            title_value = _MGF_FIELD_PATTERN.split(line)[1]
-                            # Try to extract source file from title
-                            if "\\" in title_value or ".raw" in title_value:
-                                source_file = title_value.split("\\")[-1].split(".raw")[
-                                    0
-                                ]
-                            else:
-                                source_file = default_source_file
-                        if line[:6] == "SCANS=":
-                            scan = _MGF_FIELD_PATTERN.split(line)[1]
                         line = f_in.readline()
                         continue
                     # parse ions

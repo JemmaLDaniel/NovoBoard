@@ -71,11 +71,13 @@ Example: `results/denovo.csv` → `results/denovo_accuracy.csv`, etc.
 
 NovoBoard computes accuracy at three levels of stringency (from lenient to strict):
 
-| Level | Description | Output Columns |
-| ------- | ------------- | ---------------- |
-| **Fragment Ion** (most lenient) | Compares theoretical fragment ions (b/y ions) of predicted vs. target peptide against observed spectrum peaks. Gives credit for mass-equivalent substitutions (e.g., I↔L) that produce identical fragmentation. | `target_ion_count`, `matched_ion_count`, `unmatched_target_ions_mz` |
-| **Amino Acid** (intermediate) | Uses the Novor matching algorithm which aligns cumulative prefix masses rather than characters, handling insertions/deletions gracefully. | `matched_amino_acid_count`, `amino_acid_match_pattern`, `predicted_sequence_length`, `target_sequence_length` |
-| **Peptide** (strictest) | All amino acids must match via Novor algorithm (mass-based, so I↔L are equivalent). | Derived from `matched_amino_acid_count == target_sequence_length` |
+
+| Level                           | Description                                                                                                                                                                                                     | Output Columns                                                                                                |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Fragment Ion** (most lenient) | Compares theoretical fragment ions (b/y ions) of predicted vs. target peptide against observed spectrum peaks. Gives credit for mass-equivalent substitutions (e.g., I↔L) that produce identical fragmentation. | `target_ion_count`, `matched_ion_count`, `unmatched_target_ions_mz`                                           |
+| **Amino Acid** (intermediate)   | Uses the Novor matching algorithm which aligns cumulative prefix masses rather than characters, handling insertions/deletions gracefully.                                                                       | `matched_amino_acid_count`, `amino_acid_match_pattern`, `predicted_sequence_length`, `target_sequence_length` |
+| **Peptide** (strictest)         | All amino acids must match via Novor algorithm (mass-based, so I↔L are equivalent).                                                                                                                             | Derived from `matched_amino_acid_count == target_sequence_length`                                             |
+
 
 ### 2. Generate Decoy Spectra
 
@@ -147,11 +149,13 @@ novoboard fdr \
 
 True FDR and q-values are computed for all three true positive definitions:
 
-| Metric | True Positive Definition | Stringency |
-| -------- | -------------------------- | ------------ |
-| `peptide` | All amino acids match via Novor algorithm (Winnow-comparable) | Strictest |
-| `ion-100` | 100% of theoretical fragment ions matched | Intermediate |
-| `ion-threshold` | ≥N% of fragment ions matched (default 90%) | Most lenient |
+
+| Metric          | True Positive Definition                                      | Stringency   |
+| --------------- | ------------------------------------------------------------- | ------------ |
+| `peptide`       | All amino acids match via Novor algorithm (Winnow-comparable) | Strictest    |
+| `ion-100`       | 100% of theoretical fragment ions matched                     | Intermediate |
+| `ion-threshold` | ≥N% of fragment ions matched (default 90%)                    | Most lenient |
+
 
 The `--tp-metric` option controls which ground-truth metric is displayed in the validation plot; all three are always computed internally.
 
@@ -329,13 +333,15 @@ NovoBoard uses the combination of `Source File` and `Scan` to create unique feat
 
 Required columns:
 
-| Column | Type | Description | Example |
-| -------- | ------ | ------------- | --------- |
-| `Source File` | `str` | Source spectrum file name (`.mgf` suffix automatically stripped) | `"sample"` or `"sample.mgf"` |
-| `Scan` | `int` | Scan number | `1234` |
-| `Peptide` | `str` | Peptide sequence with modifications | `"PEPTC(+57.02)DE"` |
-| Score column | `float` | Peptide-level confidence score (configurable, default: `ALC (%)`) | `85.5` |
-| AA score column | `str` | Comma-separated per-residue confidence scores (configurable, default: `local confidence (%)`) | `"90,85,88,92,87,91,89"` |
+
+| Column          | Type    | Description                                                                                   | Example                      |
+| --------------- | ------- | --------------------------------------------------------------------------------------------- | ---------------------------- |
+| `Source File`   | `str`   | Source spectrum file name (`.mgf` suffix automatically stripped)                              | `"sample"` or `"sample.mgf"` |
+| `Scan`          | `int`   | Scan number                                                                                   | `1234`                       |
+| `Peptide`       | `str`   | Peptide sequence with modifications                                                           | `"PEPTC(+57.02)DE"`          |
+| Score column    | `float` | Peptide-level confidence score (configurable, default: `ALC (%)`)                             | `85.5`                       |
+| AA score column | `str`   | Comma-separated per-residue confidence scores (configurable, default: `local confidence (%)`) | `"90,85,88,92,87,91,89"`     |
+
 
 **Note:** The `Source File` value is used to match spectra between files. The `.mgf` suffix is automatically stripped when building internal feature IDs (e.g., `sample.mgf` becomes `sample||1234`). **For InstaNovo users:** The `Source File` comes from the `experiment_name` column in your predictions CSV, so ensure your MGF files are named to match this value.
 
@@ -345,15 +351,17 @@ Extra columns will not be included in final results.
 
 NovoBoard supports a **limited set of post-translational modifications**. Peptides containing unsupported modifications will be **silently skipped** during accuracy calculations.
 
-| Residue | Modification | Input Format | Internal Representation | Mass Delta |
-| --------- | -------------- | -------------- | ------------------------- | ------------ |
-| C | Carbamidomethylation | `C(+57.02)` | `C(Carbamidomethylation)` | +57.02 Da |
-| M | Oxidation | `M(+15.99)` | `M(Oxidation)` | +15.99 Da |
-| N | Deamidation | `N(+0.98)` | `N(Deamidation)` | +0.98 Da |
-| Q | Deamidation | `Q(+0.98)` | `Q(Deamidation)` | +0.98 Da |
-| S | Phosphorylation | `S(+79.97)` | `S(Phosphorylation)` | +79.97 Da |
-| T | Phosphorylation | `T(+79.97)` | `T(Phosphorylation)` | +79.97 Da |
-| Y | Phosphorylation | `Y(+79.97)` | `Y(Phosphorylation)` | +79.97 Da |
+
+| Residue | Modification         | Input Format | Internal Representation   | Mass Delta |
+| ------- | -------------------- | ------------ | ------------------------- | ---------- |
+| C       | Carbamidomethylation | `C(+57.02)`  | `C(Carbamidomethylation)` | +57.02 Da  |
+| M       | Oxidation            | `M(+15.99)`  | `M(Oxidation)`            | +15.99 Da  |
+| N       | Deamidation          | `N(+0.98)`   | `N(Deamidation)`          | +0.98 Da   |
+| Q       | Deamidation          | `Q(+0.98)`   | `Q(Deamidation)`          | +0.98 Da   |
+| S       | Phosphorylation      | `S(+79.97)`  | `S(Phosphorylation)`      | +79.97 Da  |
+| T       | Phosphorylation      | `T(+79.97)`  | `T(Phosphorylation)`      | +79.97 Da  |
+| Y       | Phosphorylation      | `Y(+79.97)`  | `Y(Phosphorylation)`      | +79.97 Da  |
+
 
 **Important limitations:**
 
@@ -366,33 +374,39 @@ NovoBoard supports a **limited set of post-translational modifications**. Peptid
 
 If your de novo tool uses a different modification format, you'll need to convert it:
 
-| Tool | Native Format | Conversion Needed |
-| ------ | --------------- | ------------------- |
-| PEAKS | `C(+57.02)` | ✅ Native support |
-| Casanovo | `C[UNIMOD:4]` | Convert to `C(+57.02)` |
+
+| Tool      | Native Format | Conversion Needed      |
+| --------- | ------------- | ---------------------- |
+| PEAKS     | `C(+57.02)`   | ✅ Native support       |
+| Casanovo  | `C[UNIMOD:4]` | Convert to `C(+57.02)` |
 | InstaNovo | `C[UNIMOD:4]` | Convert to `C(+57.02)` |
+
 
 Example conversion from UNIMOD to NovoBoard format:
 
-| UNIMOD | NovoBoard |
-| -------- | ----------- |
-| `C[UNIMOD:4]` | `C(+57.02)` |
+
+| UNIMOD         | NovoBoard   |
+| -------------- | ----------- |
+| `C[UNIMOD:4]`  | `C(+57.02)` |
 | `M[UNIMOD:35]` | `M(+15.99)` |
-| `N[UNIMOD:7]` | `N(+0.98)` |
-| `Q[UNIMOD:7]` | `Q(+0.98)` |
+| `N[UNIMOD:7]`  | `N(+0.98)`  |
+| `Q[UNIMOD:7]`  | `Q(+0.98)`  |
 | `S[UNIMOD:21]` | `S(+79.97)` |
 | `T[UNIMOD:21]` | `T(+79.97)` |
 | `Y[UNIMOD:21]` | `Y(+79.97)` |
+
 
 ### Database Search Results CSV
 
 Required columns:
 
-| Column | Type | Description | Example |
-| -------- | ------ | ------------- | --------- |
+
+| Column        | Type  | Description                                                      | Example                      |
+| ------------- | ----- | ---------------------------------------------------------------- | ---------------------------- |
 | `Source File` | `str` | Source spectrum file name (`.mgf` suffix automatically stripped) | `"sample"` or `"sample.mgf"` |
-| `Scan` | `int` | Scan number | `1234` |
-| `Peptide` | `str` | Peptide sequence with modifications | `"PEPTC(+57.02)DE"` |
+| `Scan`        | `int` | Scan number                                                      | `1234`                       |
+| `Peptide`     | `str` | Peptide sequence with modifications                              | `"PEPTC(+57.02)DE"`          |
+
 
 **Note:** The `Source File` value **must match exactly** with the de novo results file for spectrum matching. The `.mgf` suffix is automatically stripped. **For InstaNovo users:** When using `novoboard preprocess`, the `Source File` in database results is set from the MGF filename (without `.mgf` extension), so ensure your MGF files are named to match the `experiment_name` in your InstaNovo predictions.
 
@@ -414,10 +428,12 @@ NovoBoard caches several intermediate files to speed up repeated runs. If these 
 
 ### What Gets Cached
 
-| File Pattern | When reused |
-| --- | --- |
-| `{target_stem}_fdr_{decoy_stem}.csv` | Always regenerated |
+
+| File Pattern                                  | When reused                     |
+| --------------------------------------------- | ------------------------------- |
+| `{target_stem}_fdr_{decoy_stem}.csv`          | Always regenerated              |
 | `{target_stem}_fdr_{decoy_stem}_accuracy.csv` | **Reused if it already exists** |
+
 
 The accuracy file (which maps de novo predictions to database ground truth) is the most expensive to compute and is **skipped if it already exists**. This means:
 
@@ -443,4 +459,4 @@ After clearing, the next run will regenerate all accuracy files from scratch.
 If you use NovoBoard in your research, please cite:
 
 > "NovoBoard: a comprehensive framework for evaluating the false discovery rate and accuracy of de novo peptide sequencing"
-> https://doi.org/10.1101/2024.04.16.589668
+> [https://doi.org/10.1101/2024.04.16.589668](https://doi.org/10.1101/2024.04.16.589668)

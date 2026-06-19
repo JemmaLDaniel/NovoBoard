@@ -136,6 +136,31 @@ def read_denovo(
     return denovo_psm
 
 
+def compute_q_values(fdr_array: np.ndarray) -> list[float]:
+    """Compute q-values as running minimum FDR from lowest to highest score.
+
+    Q-value represents the minimum FDR at which a PSM would be accepted.
+    Unlike FDR which can fluctuate, q-values are monotonically decreasing
+    as confidence increases, making them more suitable for thresholding.
+
+    Args:
+        fdr_array: Array of FDR values ordered by descending confidence score.
+
+    Returns:
+        List of q-values in the same order as the input.
+    """
+    q_values: list[float] = []
+    fdr_min = float("inf")
+    for current_fdr in reversed(fdr_array):
+        if current_fdr > fdr_min:
+            q_values.append(fdr_min)
+        else:
+            q_values.append(current_fdr)
+            fdr_min = current_fdr
+    q_values.reverse()
+    return q_values
+
+
 def calculate_FDR(
     target_csv: str,
     decoy_csv: str,
@@ -406,24 +431,6 @@ def validate_FDR(
     df["true_fdr_ion100"] = true_fdr_I
     df[f"true_fdr_ion{ion_threshold_pct}"] = true_fdr_T
 
-    # Calculate q-values (running minimum FDR from lowest to highest score)
-    # Q-value represents the minimum FDR at which this PSM would be accepted.
-    # Unlike FDR which can fluctuate, q-values are monotonically decreasing
-    # as confidence increases, making them more suitable for thresholding.
-    def compute_q_values(fdr_array: np.ndarray) -> list[float]:
-        """Compute q-values using Winnow's algorithm (running minimum FDR)."""
-        q_values: list[float] = []
-        fdr_min = float("inf")
-        # Walk backwards (lowest confidence to highest)
-        for current_fdr in reversed(fdr_array):
-            if current_fdr > fdr_min:
-                q_values.append(fdr_min)
-            else:
-                q_values.append(current_fdr)
-                fdr_min = current_fdr
-        q_values.reverse()  # Restore original order (high to low confidence)
-        return q_values
-
     # Compute q-values for each metric (monotonic minimum FDR)
     df["true_q_value_peptide"] = compute_q_values(true_fdr)
     df["true_q_value_ion100"] = compute_q_values(true_fdr_I)
@@ -464,15 +471,31 @@ def validate_FDR(
     # filtering walks backward through the data (from highest to lowest threshold) and
     # only keeps points where BOTH estimated and true FDR are at their minimum so far.
     # This produces cleaner curves that better represent the underlying trend.
+    #
+    # IMPORTANT: Filter using the selected tp_metric's true FDR, not always ion-threshold
+    if tp_metric == "peptide":
+        true_fdr_for_filter = true_fdr
+    elif tp_metric == "ion-100":
+        true_fdr_for_filter = true_fdr_I
+    else:  # ion-threshold
+        true_fdr_for_filter = true_fdr_T
+
     if monotonic:
         min_est, min_true = 1.0, 1.0
         reported: list[tuple[float, int, float, float, float]] = []
-        for x, y, z, v, w in list(
-            zip(df["estimated_fdr"], cumsum, true_fdr, true_fdr_I, true_fdr_T)
+        for x, y, z, v, w, f in list(
+            zip(
+                df["estimated_fdr"],
+                cumsum,
+                true_fdr,
+                true_fdr_I,
+                true_fdr_T,
+                true_fdr_for_filter,
+            )
         )[::-1]:
-            if x <= min_est and w <= min_true:
+            if x <= min_est and f <= min_true:  # Use selected metric for filtering
                 min_est = x
-                min_true = w
+                min_true = f
                 reported.append((x, y, z, v, w))
         if reported:
             (
@@ -530,4 +553,95 @@ def validate_FDR(
         true_fdr_T=true_fdr_T_out,
         estimated_fdr_full=estimated_fdr_full,
         cumsum_full=cumsum_full_out,
+    )
+
+
+@dataclass
+class FDREstimationResult:
+    """Container for FDR estimation results (no database validation).
+
+    Attributes:
+        df: DataFrame of target PSMs with estimated FDR and q-values
+        output_file: Path to the saved CSV file
+        n_total: Total number of target PSMs
+        psm_counts: Dict mapping FDR threshold to number of PSMs passing it
+    """
+
+    df: pd.DataFrame
+    output_file: str
+    n_total: int
+    psm_counts: dict[float, int]
+
+
+def estimate_FDR(
+    target_csv: str,
+    decoy_csv: str,
+    engine_score: str,
+    output_file: str | None = None,
+    fdr_thresholds: list[float] | None = None,
+) -> FDREstimationResult:
+    """Estimate per-PSM FDR and q-values using target-decoy competition.
+
+    Unlike validate_FDR(), this does not require database search ground truth.
+    It runs target-decoy competition and outputs per-PSM estimated FDR and
+    q-values for the target PSMs.
+
+    Args:
+        target_csv: Path to target de novo results CSV (NovoBoard format)
+        decoy_csv: Path to decoy de novo results CSV (NovoBoard format)
+        engine_score: Column name for confidence scoring
+        output_file: Path for output CSV. If None, derived from target filename.
+        fdr_thresholds: FDR thresholds for summary counts (default: 1% and 5%)
+
+    Returns:
+        FDREstimationResult with the annotated DataFrame and summary statistics.
+    """
+    if fdr_thresholds is None:
+        fdr_thresholds = [0.01, 0.05]
+
+    # Use fdr_thresholds for calculate_FDR's score-threshold bookkeeping
+    _dfs, dfs_fdr, _score_list, _count_list = calculate_FDR(
+        target_csv, decoy_csv, engine_score, fdr_thresholds
+    )
+
+    # Keep only target PSMs
+    df_target = dfs_fdr[dfs_fdr["is_target"]].copy()
+    logger.info(f"  Target PSMs for FDR estimation: {len(df_target):,d}")
+
+    # Compute q-values from estimated FDR
+    df_target["estimated_q_value"] = compute_q_values(
+        np.array(df_target["estimated_fdr"])
+    )
+
+    # Summary: count PSMs at each FDR threshold
+    psm_counts: dict[float, int] = {}
+    for threshold in sorted(fdr_thresholds):
+        count = int((df_target["estimated_q_value"] <= threshold).sum())
+        psm_counts[threshold] = count
+        logger.info(f"  PSMs at {threshold:.0%} FDR: {count:,d} / {len(df_target):,d}")
+
+    # Build output path
+    if output_file is None:
+        target_path = Path(target_csv)
+        decoy_stem = Path(decoy_csv).stem
+        output_file = str(
+            target_path.parent / f"{target_path.stem}_fdr_{decoy_stem}_qvalues.csv"
+        )
+
+    output_cols = [
+        "spectrum_id",
+        "Peptide",
+        engine_score,
+        "estimated_fdr",
+        "estimated_q_value",
+    ]
+    output_cols = [c for c in output_cols if c in df_target.columns]
+    df_target[output_cols].to_csv(output_file, index=False)
+    logger.info(f"Saved FDR estimates to: {output_file}")
+
+    return FDREstimationResult(
+        df=df_target,
+        output_file=output_file,
+        n_total=len(df_target),
+        psm_counts=psm_counts,
     )
